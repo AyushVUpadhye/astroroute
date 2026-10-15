@@ -3,71 +3,114 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AstroRoute — Mission Control</title>
+  <title>AstroRoute</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header id="topbar">
-    <span class="logo">⬡ AstroRoute</span>
-    <div class="controls">
-      <label>Target
-        <select id="targetPicker"></select>
-      </label>
-      <label>Scenario
-        <select id="scenarioPicker">
-          <option value="default">Default</option>
-          <option value="storm">Storm</option>
-          <option value="comet-rain">Comet Rain</option>
-        </select>
-      </label>
-      <label>Speed
-        <select id="speedPicker">
-          <option value="1">1×</option>
-          <option value="4">4×</option>
-          <option value="12" selected>12×</option>
-          <option value="48">48×</option>
-        </select>
-      </label>
-      <button id="btnPlayPause" title="Play / Pause">⏸</button>
-      <button id="btnReset" title="Reset simulation">↺</button>
-      <button id="btnAddAsteroid" title="Click map to drop asteroid">☄ Asteroid</button>
-      <button id="btnAddComet" title="Click map to drop comet">🌠 Comet</button>
-      <span id="clock" class="clock">t = 0.0 d</span>
-      <span id="resScore" class="badge">—</span>
+  <header class="topbar">
+    <div class="brand"><span class="brand-dot"></span>AstroRoute</div>
+
+    <div class="picker" id="picker">
+      <button class="btn picker-btn" id="picker-btn" aria-haspopup="listbox" aria-expanded="false">
+        <span class="muted">Target</span> <span id="picker-label">Loading…</span> <span class="caret">▾</span>
+      </button>
+      <div class="picker-menu" id="picker-menu" role="listbox" hidden></div>
     </div>
+
+    <div class="group">
+      <button class="btn" id="play-btn" aria-pressed="false">▶ Play</button>
+      <div class="seg" id="speed-seg" role="group" aria-label="Speed">
+        <button class="seg-btn active" data-speed="1">1x</button>
+        <button class="seg-btn" data-speed="4">4x</button>
+        <button class="seg-btn" data-speed="16">16x</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <button class="btn tool" id="tool-swarm" data-tool="asteroid">☄ Drop asteroid swarm</button>
+      <button class="btn tool" id="tool-comet" data-tool="comet">✦ Launch comet</button>
+      <button class="btn" id="reset-btn">↺ Reset</button>
+    </div>
+
+    <div class="spacer"></div>
+    <div class="clock mono" id="clock">T+0.0 d</div>
   </header>
 
-  <main id="layout">
-    <section id="mapSection">
-      <canvas id="mapCanvas"></canvas>
-      <div id="tooltip" class="tooltip hidden"></div>
+  <main class="layout">
+    <section class="panel map-panel">
+      <div class="panel-head">
+        <h2>Network map</h2>
+        <div class="legend">
+          <span><i class="sw sw-best"></i>best path</span>
+          <span><i class="sw sw-alt"></i>alternate</span>
+          <span><i class="sw sw-jam"></i>jamming</span>
+          <span><i class="sw sw-ahead"></i>will be jammed</span>
+          <span><i class="sw sw-link"></i>link SNR</span>
+        </div>
+      </div>
+      <div class="map-wrap">
+        <canvas id="map"></canvas>
+        <div class="map-hint" id="map-hint" hidden></div>
+      </div>
     </section>
 
-    <aside id="sidebar">
-      <div class="panel" id="routePanel">
-        <h2>Route</h2>
-        <div id="routeCard">—</div>
-        <div id="altRouteCard" class="alt"></div>
-      </div>
+    <aside class="side">
+      <section class="panel card">
+        <div class="panel-head">
+          <h2>Route</h2>
+          <div class="group">
+            <button class="switch on" id="predict-btn" aria-pressed="true" title="Avoid links forecast to be jammed within 1 day">
+              <span class="knob"></span>Predictive
+            </button>
+            <div class="seg" id="mode-seg" role="group" aria-label="Routing mode">
+              <button class="seg-btn active" data-mode="fastest">Fastest</button>
+              <button class="seg-btn" data-mode="reliable">Reliable</button>
+              <button class="seg-btn" data-mode="throughput">Max throughput</button>
+            </div>
+          </div>
+        </div>
+        <div class="route-head">
+          <div class="pill" id="link-pill">LINK UP</div>
+          <div class="route-path mono" id="route-path">—</div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="stat-v mono" id="st-latency">—</div><div class="stat-k">latency (min)</div></div>
+          <div class="stat"><div class="stat-v mono" id="st-tput">—</div><div class="stat-k">throughput (Mbps)</div></div>
+          <div class="stat"><div class="stat-v mono" id="st-hops">—</div><div class="stat-k">hops</div></div>
+          <div class="stat"><div class="stat-v mono" id="st-snr">—</div><div class="stat-k">min SNR (dB)</div></div>
+          <div class="stat"><div class="stat-v mono" id="st-reroutes">0</div><div class="stat-k" id="st-reroutes-k">reroutes</div></div>
+        </div>
+        <div class="alt-line mono" id="alt-line">alternate: —</div>
+      </section>
 
-      <div class="panel" id="detectPanel">
-        <h2>Exoplanet Detector — <span id="targetLabel">—</span></h2>
-        <canvas id="lcCanvas" width="320" height="90"></canvas>
-        <canvas id="pgCanvas" width="320" height="90"></canvas>
-        <canvas id="foldCanvas" width="320" height="90"></canvas>
-        <div id="verdictBox" class="verdict">—</div>
-        <div id="checksBox" class="checks"></div>
-      </div>
+      <section class="panel card">
+        <div class="panel-head"><h2>Event log</h2><span class="muted mono" id="log-count">0</span></div>
+        <ol class="log" id="log"></ol>
+      </section>
 
-      <div class="panel" id="forecastPanel">
-        <h2>24 h Threat Forecast</h2>
-        <canvas id="forecastCanvas" width="320" height="70"></canvas>
-      </div>
-
-      <div class="panel" id="logPanel">
-        <h2>Event Log</h2>
-        <ul id="eventLog"></ul>
-      </div>
+      <section class="panel card">
+        <div class="panel-head"><h2>Detection</h2><span class="muted mono" id="det-target">—</span></div>
+        <div class="chart-label">Received light curve</div>
+        <canvas class="chart chart-lc" id="chart-lc"></canvas>
+        <div class="progress"><div class="progress-bar" id="recv-bar"></div></div>
+        <div class="progress-text mono" id="recv-text">received 0 of 0 points</div>
+        <div class="chart-row">
+          <div>
+            <div class="chart-label">Periodogram</div>
+            <canvas class="chart chart-sm" id="chart-pg"></canvas>
+          </div>
+          <div>
+            <div class="chart-label">Folded transit</div>
+            <canvas class="chart chart-sm" id="chart-fold"></canvas>
+          </div>
+        </div>
+        <div class="verdict" id="verdict">
+          <div class="verdict-k">Verdict</div>
+          <div class="verdict-v" id="verdict-v">WAITING FOR DATA</div>
+          <div class="verdict-sub mono" id="verdict-sub"></div>
+        </div>
+        <ul class="checks" id="checks"></ul>
+      </section>
     </aside>
   </main>
 
