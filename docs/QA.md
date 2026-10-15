@@ -14,6 +14,7 @@ Numbers below are printed by `npm test` (measured 15 Oct). Never quote a number 
 | Kepler-6 streamed through the storm | 2093/2093 points arrived, period 3.2361 d (NASA 3.2347 d) |
 | Our BLS on 9 real NASA light curves | **9/9 periods within 1%**, 0.1–0.6 s each |
 | Verdicts | 6/6 confirmed planets → PLANET CANDIDATE; NASA false positives: 1/2 caught |
+| Planet radius vs NASA's published radius | Kepler-6 14.6 vs 14.62, HAT-P-7 17.2 vs 16.93, WASP-18 13.5 vs 13.90, Kepler-17 14.1 vs 14.68, WASP-43 9.7 vs 10.42 Earth radii (TrES-2 12.6 vs 15.24 — grazing transit) |
 
 ## Routing (Chirag)
 - **How do you find the best path?** Dijkstra's algorithm with a binary heap, written by us.
@@ -48,7 +49,9 @@ Numbers below are printed by `npm test` (measured 15 Oct). Never quote a number 
 - **What is BLS?** Box Least Squares (Kovács, Zucker & Mazeh 2002): try many periods, fold the
   light curve at each, find the box-shaped dip that best explains the data. We wrote it ourselves.
 - **Planet vs false positive?** SNR ≥ 7.1 (Kepler's threshold), ≥ 2 real transits, odd vs even
-  dips match, no strong secondary eclipse halfway between transits.
+  dips match, no strong secondary eclipse halfway between transits, and size: radius = star radius ×
+  √depth (NASA star radius) must stay under ~2 Jupiter radii (22.4 Earth radii). KIC 8801343 comes
+  out at 33.1 Earth radii → a star.
 - **Why not machine learning?** The rules ban pre-built models, and we want every verdict to be
   explainable: each check prints the reason in plain English.
 - **Weak spot?** We missed one NASA false positive (KIC 6756669) — it passes all four checks in
