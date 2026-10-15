@@ -452,3 +452,5 @@ body.light .verdict { background: #FFFFFF; }
 aside.side > section[hidden] { display: none !important; }
 body.light .transit-row { background: #FFFFFF; border-color: rgba(20, 40, 80, 0.15); color: var(--text); }
 body.light .transit-row.transit-soon { background: rgba(168, 98, 0, 0.06); border-color: rgba(168, 98, 0, 0.4); }
+body.light .intel-stat { background: #FFFFFF; border-color: rgba(20, 40, 80, 0.15); }
+body.light .intel-relay-bar { background: rgba(20, 40, 80, 0.10); }

@@ -2,6 +2,10 @@
 
 Keep the signal alive, find the world — live rerouting of deep-space telescope data around asteroid/comet jamming, with a from-scratch exoplanet detector.
 
+![AstroRoute — live rerouting and detection](docs/screenshot.png)
+
+**Live:** https://thegoodengineers.github.io/astroroute/?demo=1
+
 ## Problem statement — ZERO HOUR · Theme 03: 🚀 SPACE — EXOPLANET HUNTER
 
 **Case Study: A Signal Hidden in the Starlight**

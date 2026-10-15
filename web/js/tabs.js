@@ -5,7 +5,7 @@ const cards = side ? [...side.querySelectorAll(":scope > section")] : [];
 const TAB_OF = ["route", "route", "detect", "detect"]; // route card + event log share the first tab // order of the <section>s in index.html
 const TABS = [["route", "Network"], ["detect", "Detection"]];
 if (side && cards.length) {
-  cards.forEach((c, i) => (c.dataset.tab = TAB_OF[i] || "route"));
+  cards.forEach((c, i) => (c.dataset.tab = c.dataset.tab || TAB_OF[i] || "route")); // an explicit data-tab in index.html wins
   const bar = document.createElement("div");
   bar.className = "side-tabs"; bar.setAttribute("role", "tablist");
   for (const [id, label] of TABS) {
