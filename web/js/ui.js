@@ -8,6 +8,14 @@ export const COLORS = {
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
 const SANS = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
 
+// Newest-wins guard for overlapping async loads: each call starts a load and returns an
+// isCurrent() check that turns false as soon as a newer load starts, so a slow, superseded
+// response can be dropped instead of overwriting the newer one.
+export function latestOnly() {
+  let seq = 0;
+  return () => { const mine = ++seq; return () => mine === seq; };
+}
+
 // ---------------------------------------------------------------- canvas basics
 
 // Match the backing store to the CSS size (crisp on HiDPI). Returns ctx in CSS pixels.
