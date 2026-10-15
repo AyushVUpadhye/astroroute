@@ -419,7 +419,7 @@ body::after {
   .btn { padding: 0 8px; }
 }
 
-/* ── Light mode (toggle "Light" in the top bar, or ?light=1). The map stays dark: it is space. ── */
+/* ── Light mode (always on: body.light in index.html). The map stays dark: it is space. ── */
 body.light {
   --bg:      #F4F6FA;
   --bg1:     #FFFFFF;
