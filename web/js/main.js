@@ -111,7 +111,7 @@ const mockDetect = (() => {
     return { phase, flux: flux.slice() };
   }
 
-  function vet(time, flux, best) {
+  function vet(time, flux, best, starRadius = null) {
     const { period: P, t0, duration: D, depth } = best;
     const [mean] = stats(flux);
     const odd = [], even = [], sec = [], epochs = new Set();
@@ -140,7 +140,9 @@ const mockDetect = (() => {
     if (!checks[0].passed) verdict = "NEED MORE DATA";
     else if (!checks[1].passed) verdict = "NO CONVINCING SIGNAL";
     else if (!checks[2].passed || !checks[3].passed) verdict = "LIKELY FALSE POSITIVE";
-    return { checks, verdict };
+    const radiusAssumed = !(starRadius > 0); // Rp = R* sqrt(depth), R_sun = 109.1 R_earth
+    const radiusEarth = (radiusAssumed ? 1 : starRadius) * Math.sqrt(Math.max(0, depth)) * 109.1;
+    return { checks, verdict, radiusEarth, radiusAssumed };
   }
 
   return { bls, fold, vet };
@@ -156,7 +158,7 @@ const PACKETS_PER_TARGET = 240; // each light curve is split into this many pack
 const LAUNCH_SEC = 0.6;         // one packet per 0.6 s at 1x
 const PACKET_AU_PER_SEC = 0.5;  // visual packet speed at 1x
 const DETECT_EVERY = 10;        // run BLS + vetting every N delivered packets
-const SWITCH_MARGIN = 0.97;     // only leave a working route for one >3% cheaper (no flapping)
+const SWITCH_MARGIN = 0.03;     // only leave a working route for one >3% better (no flapping)
 const AHEAD_DAYS = 1;           // predictive routing horizon
 
 const $ = (id) => document.getElementById(id);
@@ -218,9 +220,10 @@ function revalidate(nodes, idx) {
     used.push(l);
   }
   const o = router.DEFAULTS;
-  const cost = used.reduce((s, l) => s + l.latencyMin +
+  const capacity = Math.min(...used.map((l) => l.capacityMbps ?? router.capacityMbps(l.snrDb)));
+  const cost = S.mode === "throughput" ? -capacity : used.reduce((s, l) => s + l.latencyMin +
     (S.mode === "reliable" ? o.lambda * Math.max(0, o.comfortDb - l.snrDb) : 0), 0);
-  return { nodes, links: used, cost, latencyMin: used.reduce((s, l) => s + l.latencyMin, 0),
+  return { nodes, links: used, cost, capacityMbps: capacity, latencyMin: used.reduce((s, l) => s + l.latencyMin, 0),
     minSnrDb: Math.min(...used.map((l) => l.snrDb)) };
 }
 
@@ -281,7 +284,8 @@ function updateRouting(reason = "") {
   const fresh = S.src && S.dst ? router.bestPath(S.links, S.src, S.dst, S.mode) : null;
   const cur = S.best ? revalidate(S.best.nodes, linkIndex(S.links)) : null;
   let next = fresh;
-  if (cur && fresh && pathKey(cur) !== pathKey(fresh) && fresh.cost >= cur.cost * SWITCH_MARGIN && !reason) next = cur;
+  if (cur && fresh && pathKey(cur) !== pathKey(fresh) && !reason &&
+    cur.cost - fresh.cost <= Math.abs(cur.cost) * SWITCH_MARGIN) next = cur;
   const prev = S.best, prevAlt = S.alt;
   S.best = next;
   S.alt = next ? router.alternatePath(S.links, S.src, S.dst, next, S.mode) : null;
@@ -309,6 +313,7 @@ function updateRouting(reason = "") {
     if (cause?.forced) S.forced++;
     if (cause) log(`${cause.text}; ${cause.forced ? "forced" : "proactive"} reroute via ${via(next)}, ${delta}`, cause.forced ? "bad" : "warn");
     else if (reason) log(`${reason}: route via ${via(next)}, ${delta}`, "info");
+    else if (S.mode === "throughput") log(`Wider route via ${via(next)}: ${next.capacityMbps.toFixed(1)} Mbps (was ${prev.capacityMbps.toFixed(1)})`, "info");
     else log(`Path cleared; switched to cheaper route via ${via(next)}, ${delta}`, "info");
   }
   rerouteInFlight();
@@ -388,9 +393,9 @@ function receivedArrays() {
   return { time, flux };
 }
 
-function detectAll(time, flux) {
+function detectAll(time, flux, starRadius) {
   const b = detect.bls(time, flux, {});
-  const v = detect.vet(time, flux, b.best);
+  const v = detect.vet(time, flux, b.best, starRadius);
   const f = b.best ? detect.fold(time, flux, b.best.period, b.best.t0) : null;
   return { b, v, f };
 }
@@ -401,10 +406,10 @@ function makeDetectWorker() {
   if (USE_MOCKS || typeof Worker === "undefined") return null;
   const src = `import * as detect from ${JSON.stringify(new URL("./detect.js", import.meta.url).href)};
 onmessage = (e) => {
-  const { gen, time, flux } = e.data;
+  const { gen, time, flux, starRadius } = e.data;
   try {
     const b = detect.bls(time, flux, {});
-    const v = detect.vet(time, flux, b.best);
+    const v = detect.vet(time, flux, b.best, starRadius);
     const f = b.best ? detect.fold(time, flux, b.best.period, b.best.t0) : null;
     postMessage({ gen, b, v, f });
   } catch (err) { postMessage({ gen, error: err.message }); }
@@ -419,6 +424,9 @@ onmessage = (e) => {
 let detectWorker = null;
 const job = { gen: 0, busy: false, again: false, final: false };
 
+// Host star radius in solar radii (data file, else index.json); null -> vet assumes 1 R_sun.
+const starRadius = () => S.lc?.starRadius ?? S.target?.starRadius ?? null;
+
 function runDetect() {
   const { time, flux } = receivedArrays();
   if (time.length < 100) return;
@@ -426,11 +434,11 @@ function runDetect() {
   job.final = S.delivered === S.nChunks;
   if (detectWorker) {
     job.busy = true;
-    detectWorker.postMessage({ gen: job.gen, time, flux });
+    detectWorker.postMessage({ gen: job.gen, time, flux, starRadius: starRadius() });
     return;
   }
   let res;
-  try { res = { gen: job.gen, ...detectAll(time, flux) }; } catch (e) { res = { gen: job.gen, error: e.message }; }
+  try { res = { gen: job.gen, ...detectAll(time, flux, starRadius()) }; } catch (e) { res = { gen: job.gen, error: e.message }; }
   onDetectResult(res);
 }
 
@@ -511,6 +519,8 @@ function drawDetection() {
     const bb = b.best;
     sub = `P = ${bb.period.toFixed(4)} d` + (pub ? ` (NASA ${pub.toFixed(4)} d)` : "") +
       ` · depth ${(bb.depth * 100).toFixed(3)}% · SNR ${bb.snr.toFixed(1)}`;
+    const v = S.det;
+    if (Number.isFinite(v?.radiusEarth)) sub += ` · Radius ${v.radiusEarth.toFixed(1)} R⊕${v.radiusAssumed ? " (assumed)" : ""}`;
   }
   renderVerdict(S.detError ? null : S.det, sub);
 }
@@ -608,11 +618,13 @@ function setSpeed(v) {
   document.querySelectorAll("#speed-seg .seg-btn").forEach((b) => b.classList.toggle("active", +b.dataset.speed === v));
 }
 
+const MODE_NAMES = { fastest: "Fastest", reliable: "Reliable", throughput: "Max throughput" };
+
 function setMode(m) {
   if (S.mode === m) return;
   S.mode = m;
   document.querySelectorAll("#mode-seg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
-  if (S.snap) updateRouting(`Mode ${m === "fastest" ? "Fastest" : "Reliable"}`);
+  if (S.snap) updateRouting(`Mode ${MODE_NAMES[m]}`);
 }
 
 function setPredictive(on) {

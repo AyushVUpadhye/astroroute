@@ -339,6 +339,7 @@ export function renderRoute({ best, alt, status, reroutes, forced = 0, nameOf })
   path.textContent = best ? best.nodes.map(nameOf).join("  →  ") : "no route to Earth";
   path.title = path.textContent;
   $("st-latency").textContent = best ? fmt(best.latencyMin) : "—";
+  $("st-tput").textContent = best && Number.isFinite(best.capacityMbps) ? fmt(best.capacityMbps) : "—";
   $("st-hops").textContent = best ? String(best.nodes.length - 1) : "—";
   $("st-snr").textContent = best ? fmt(best.minSnrDb) : "—";
   $("st-reroutes").textContent = String(reroutes);
