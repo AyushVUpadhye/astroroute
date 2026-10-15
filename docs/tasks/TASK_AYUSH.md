@@ -11,6 +11,8 @@
   still up) or "forced" (old path already jammed). Measured: forced reroutes 5 → 0 with it on.
 - NEW (12:44): **3 routing modes.** Mode toggle Fastest / Reliable / **Max throughput** (`bestPath(links, obs, earth, "throughput")`).
   Every route has `capacityMbps` (Shannon bottleneck) — show "Throughput X.X Mbps" next to latency.
+- NEW (12:50): `vet(time, flux, best, data.starRadius)` returns `radiusEarth`, `radiusAssumed` and a 5th
+  check "Size". Show "Radius 14.6 R⊕" in the metrics row ("assumed" tag when radiusAssumed).
 - A backup UI is being built on branch `fallback/ui` in case of time trouble — push yours to main
   as soon as it runs; yours wins if it works.
 
