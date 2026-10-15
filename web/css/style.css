@@ -454,3 +454,21 @@ body.light .transit-row { background: #FFFFFF; border-color: rgba(20, 40, 80, 0.
 body.light .transit-row.transit-soon { background: rgba(168, 98, 0, 0.06); border-color: rgba(168, 98, 0, 0.4); }
 body.light .intel-stat { background: #FFFFFF; border-color: rgba(20, 40, 80, 0.15); }
 body.light .intel-relay-bar { background: rgba(20, 40, 80, 0.10); }
+
+/* ── Jamming heatmap overlay (drawn above the 3D map by main.js) ─────────────── */
+.heat { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; pointer-events: none; }
+.heat[hidden] { display: none; }
+
+/* ── Touch: a horizontal drag on the map rotates the view (map3d.js pointer events); without
+   this the browser takes the swipe as "go back" and leaves the page. Vertical swipes still scroll. */
+#map { touch-action: pan-y; }
+html, body { overscroll-behavior-x: none; }
+
+/* ── Keyboard focus + motion preferences ──────────────────────────────────────── */
+.btn:focus-visible, .seg-btn:focus-visible, .switch:focus-visible, .picker-btn:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.picker-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
+}

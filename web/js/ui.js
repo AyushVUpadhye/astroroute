@@ -363,6 +363,7 @@ export function renderLog(events) {
   if (!events.length) { ol.innerHTML = '<li class="log-empty">No events yet - press Play.</li>'; return; }
   ol.replaceChildren(...events.slice(0, 60).map((e) => {
     const li = document.createElement("li");
+    if (e.level) li.className = e.level;
     const t = document.createElement("time"); t.textContent = e.stamp;
     const dot = document.createElement("span"); dot.className = `lvl ${e.level || ""}`;
     const msg = document.createElement("span"); msg.textContent = e.text;
@@ -383,25 +384,32 @@ const VERDICT_CLASS = {
 
 // ---------------------------------------------------------------- heatmap overlay
 
-// Draw a signal-attenuation heatmap over the map canvas using the current snap.
-// attFn(x, y) → dB attenuation at world position (x, y).
+// Signal-attenuation heatmap over the map. attFn(x, y) -> jamming dB at world (x, y); T.toWorld
+// maps a screen point to world. Sampled once per gridStep-pixel cell into a small image, then
+// scaled up with smoothing so it reads as a field: amber where jamming starts, red where it
+// would block a link.
+const heatBuf = typeof document !== "undefined" ? document.createElement("canvas") : null;
 export function drawHeatmap(canvas, T, attFn, gridStep = 28) {
   const { ctx, w, h } = fitCanvas(canvas);
-  const cellW = gridStep, cellH = gridStep;
-  for (let sx = 0; sx < w; sx += cellW) {
-    for (let sy = 0; sy < h; sy += cellH) {
-      const [wx, wy] = T.toWorld(sx + cellW / 2, sy + cellH / 2);
-      const db = attFn(wx, wy);
-      if (db <= 0) continue;
-      const alpha = Math.min(0.55, db / 60);
-      const t = Math.min(1, db / 24);
-      // green → yellow → red
-      const r = Math.round(t < 0.5 ? 255 * t * 2 : 255);
-      const g = Math.round(t < 0.5 ? 255 : 255 * (1 - (t - 0.5) * 2));
-      ctx.fillStyle = `rgba(${r},${g},0,${alpha.toFixed(2)})`;
-      ctx.fillRect(sx, sy, cellW, cellH);
-    }
+  ctx.clearRect(0, 0, w, h);
+  const cols = Math.ceil(w / gridStep), rows = Math.ceil(h / gridStep);
+  heatBuf.width = cols; heatBuf.height = rows;
+  const bctx = heatBuf.getContext("2d"), img = bctx.createImageData(cols, rows);
+  const [ar, ag, ab] = hexRgb(COLORS.amber), [rr, rg, rb] = hexRgb(COLORS.red);
+  let any = false;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const [wx, wy] = T.toWorld((i + 0.5) * gridStep, (j + 0.5) * gridStep);
+    const db = attFn(wx, wy);
+    if (!(db > 0.5)) continue;
+    any = true;
+    const t = Math.min(1, db / 24), k = (j * cols + i) * 4;
+    img.data[k] = ar + (rr - ar) * t; img.data[k + 1] = ag + (rg - ag) * t; img.data[k + 2] = ab + (rb - ab) * t;
+    img.data[k + 3] = 255 * Math.min(0.5, 0.12 + db / 60);
   }
+  if (!any) return;
+  bctx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(heatBuf, 0, 0, cols * gridStep, rows * gridStep);
 }
 
 // ---------------------------------------------------------------- hop-threat bars
