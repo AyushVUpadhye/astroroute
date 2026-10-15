@@ -5,7 +5,8 @@
   "mission": "Kepler",
   "kind": "planet",
   "publishedPeriod": 3.2346996,
-  "points": 2093
+  "points": 2093,
+  "starRadius": 1.391
  },
  {
   "slug": "kepler-17",
@@ -13,7 +14,8 @@
   "mission": "Kepler",
   "kind": "planet",
   "publishedPeriod": 1.4857108,
-  "points": 5694
+  "points": 5694,
+  "starRadius": 1.01034
  },
  {
   "slug": "tres-2",
@@ -21,7 +23,8 @@
   "mission": "Kepler",
   "kind": "planet",
   "publishedPeriod": 2.47063,
-  "points": 2093
+  "points": 2093,
+  "starRadius": 1.12
  },
  {
   "slug": "hat-p-7",
@@ -29,7 +32,8 @@
   "mission": "Kepler",
   "kind": "planet",
   "publishedPeriod": 2.20474,
-  "points": 2093
+  "points": 2093,
+  "starRadius": 2
  },
  {
   "slug": "wasp-18",
@@ -37,7 +41,8 @@
   "mission": "TESS",
   "kind": "planet",
   "publishedPeriod": 0.94145223,
-  "points": 5660
+  "points": 5660,
+  "starRadius": 1.319
  },
  {
   "slug": "wasp-43",
@@ -45,7 +50,8 @@
   "mission": "TESS",
   "kind": "planet",
   "publishedPeriod": 0.813475,
-  "points": 5348
+  "points": 5348,
+  "starRadius": 0.6
  },
  {
   "slug": "kic-6756669",
@@ -53,7 +59,8 @@
   "mission": "Kepler",
   "kind": "false_positive",
   "publishedPeriod": 5.851520671,
-  "points": 5693
+  "points": 5693,
+  "starRadius": 0.806
  },
  {
   "slug": "kic-8801343",
@@ -61,7 +68,8 @@
   "mission": "Kepler",
   "kind": "false_positive",
   "publishedPeriod": 2.73987398,
-  "points": 2093
+  "points": 2093,
+  "starRadius": 2.26
  },
  {
   "slug": "toi-1163-01",
@@ -69,6 +77,7 @@
   "mission": "TESS",
   "kind": "candidate",
   "publishedPeriod": 3.0771612,
-  "points": 4309
+  "points": 4309,
+  "starRadius": null
  }
 ]

@@ -14,6 +14,9 @@ const SNR_MIN = 7.1;
 // by tens of %).
 const ODD_EVEN_SIGMA = 3, ODD_EVEN_FRAC = 0.2;
 const SECONDARY_SIGMA = 5, SECONDARY_FRAC = 0.05; // hot Jupiters can show a few-% secondary
+// Size: depth = (Rp/R*)^2, so Rp = R* sqrt(depth). Nothing bigger than ~2 Jupiter radii is a
+// planet (the most inflated hot Jupiters reach ~2 R_J). R_sun / R_earth = 695,700 / 6,378.1 km.
+const R_SUN_IN_EARTH = 109.1, MAX_PLANET_EARTH_RADII = 22.4;
 
 const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
 const std = (a) => { const m = mean(a); return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / Math.max(1, a.length - 1)); };
@@ -102,8 +105,9 @@ function windowDepth(win, out) {
   return { depth: mean(out) - mean(win), err: std(out) * Math.sqrt(1 / win.length + 1 / out.length), n: win.length };
 }
 
-export function vet(time, flux, best) {
-  if (!best) return { checks: [], verdict: "NEED MORE DATA" };
+// starRadius: the host star's radius in solar radii (NASA catalogue), or null -> assume 1.
+export function vet(time, flux, best, starRadius = null) {
+  if (!best) return { checks: [], verdict: "NEED MORE DATA", radiusEarth: null, radiusAssumed: true };
   const { period: P, t0, duration: D } = best;
   const odd = [], even = [], sec = [], out = [];
   const epochs = new Map(); // epoch -> in-transit fluxes
@@ -148,9 +152,17 @@ export function vet(time, flux, best) {
     detail: secOk ? "No significant dip halfway between transits - the companion is not glowing like a star."
       : `A ${(100 * secFrac).toFixed(0)}%-deep dip appears halfway between transits (${secSigma.toFixed(1)}σ) - the companion is a star.` });
 
+  const radiusAssumed = !(starRadius > 0);
+  const radiusEarth = (radiusAssumed ? 1 : starRadius) * Math.sqrt(Math.max(0, best.depth)) * R_SUN_IN_EARTH;
+  const sizeOk = radiusEarth <= MAX_PLANET_EARTH_RADII;
+  const starTxt = radiusAssumed ? "assuming a Sun-sized star" : `star radius ${starRadius.toFixed(2)} R☉ (NASA)`;
+  checks.push({ name: "Size", passed: sizeOk, value: +radiusEarth.toFixed(1),
+    detail: sizeOk ? `Companion is ${radiusEarth.toFixed(1)} Earth radii (${starTxt}) - planet-sized.`
+      : `Companion is ${radiusEarth.toFixed(1)} Earth radii (${starTxt}) - bigger than any known planet, so it is a star.` });
+
   let verdict = "PLANET CANDIDATE";
   if (nT < 2) verdict = "NEED MORE DATA";
   else if (!snrOk) verdict = "NO CONVINCING SIGNAL"; // too weak to judge its shape
-  else if (!oeOk || !secOk) verdict = "LIKELY FALSE POSITIVE";
-  return { checks, verdict };
+  else if (!oeOk || !secOk || !sizeOk) verdict = "LIKELY FALSE POSITIVE";
+  return { checks, verdict, radiusEarth, radiusAssumed };
 }

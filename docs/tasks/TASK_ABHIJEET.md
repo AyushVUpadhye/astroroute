@@ -12,10 +12,16 @@
   only if > 5σ AND > 5% of the primary. Reason: WASP-18 b (a confirmed planet) showed an 11%,
   26σ odd/even difference from systematics in very clean TESS data.
 
+- **DONE (12:50, Chirag): Size check.** `vet(time, flux, best, starRadius)` - NASA star radius now in
+  every `web/data/*.json`; radius = R* x sqrt(depth) x 109.1, fails above 22.4 Earth radii (2 R_Jup).
+  Our radii vs NASA: Kepler-6 14.6/14.62, HAT-P-7 17.2/16.93, WASP-18 13.5/13.90, Kepler-17
+  14.1/14.68, WASP-43 9.7/10.42, TrES-2 12.6/15.24 (grazing); KIC 8801343 33.1 -> flagged as a star.
+  KIC 6756669 is still missed: NASA radius 0.806 R_sun gives 14.4 Earth radii, so size can't catch it.
+
 ### Left for Abhijeet (pick up from here)
 1. **Catch KIC 6756669** without breaking the 6 planets: try a V-shape check (mean depth in
    the outer half of the box vs the central half: measured 0.67 for KIC 6756669 vs 0.72–0.89
-   for planets — too close alone) or a size check (needs star radius, not in our files yet).
+   for planets — too close alone). The size check is done and does not catch it (see above).
    Run `npm test` after every change; the real-data table prints at the end.
 2. Add a "Shape" check to `vet()` only if it separates them; otherwise write the miss into
    README "limitations" (tell Bhumika).

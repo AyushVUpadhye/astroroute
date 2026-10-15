@@ -63,11 +63,11 @@ test("real NASA light curves: period recovery and verdicts", () => {
     const t = performance.now();
     const { best } = bls(d.time, d.flux);
     const ms = performance.now() - t;
-    const v = vet(d.time, d.flux, best);
+    const v = vet(d.time, d.flux, best, d.starRadius);
     const r = best.period / d.publishedPeriod;
     const ok = Math.abs(r - 1) < 0.01;
     total++; if (ok) exact++;
-    console.log(`${d.target.padEnd(13)} ${d.kind.padEnd(15)} found ${best.period.toFixed(4)} NASA ${d.publishedPeriod.toFixed(4)} ${ok ? "exact" : "x" + r.toFixed(2)}  SNR ${best.snr.toFixed(0).padStart(4)}  ${v.verdict}  ${ms.toFixed(0)} ms`);
+    console.log(`${d.target.padEnd(13)} ${d.kind.padEnd(15)} found ${best.period.toFixed(4)} NASA ${d.publishedPeriod.toFixed(4)} ${ok ? "exact" : "x" + r.toFixed(2)}  SNR ${best.snr.toFixed(0).padStart(4)}  ${v.verdict}  R=${v.radiusEarth.toFixed(1)}${v.radiusAssumed ? "?" : ""}  ${ms.toFixed(0)} ms`);
     assert.ok(ms < 3000, "BLS must finish within 3 s");
   }
   console.log(`BLS recovered ${exact}/${total} NASA periods within 1%`);
