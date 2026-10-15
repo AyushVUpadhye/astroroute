@@ -1,6 +1,15 @@
 # TASK — Abhijeet · detector (`web/js/detect.js`) · issue: Detector · branch `feat/detect`
 
-## Handover status (Chirag is covering this while Abhijeet is away — read this first)
+## Abhijeet is back (13:08) — you own detect.js again. Start here:
+1. `git pull origin main` then `npm test` (47/47 should pass; real-data table prints at the end).
+2. Read the DONE list below — the detector is finished and on main, do NOT rewrite it.
+3. Your jobs now, in order:
+   a. Learn the Q&A answers for BLS + the 5 checks (`docs/QA.md`, 'Detection'). You answer these at the pitch.
+   b. Optional, only if `npm test` stays green: try a V-shape check to catch KIC 6756669 (see 'Left for Abhijeet').
+   c. Help Ayush: open the app (`python -m http.server 8000 -d web`, http://localhost:8000/?demo=1) and report anything broken.
+   Freeze is 14:00 - push nothing risky after 13:45.
+
+## Handover status (what Chirag did while you were away)
 - **DONE (12:23, Chirag, pushed to main):** `web/js/detect.js` — from-scratch BLS (log-uniform
   period grid, 200 phase bins, 6 durations), `fold`, `vet` with 4 checks; `tests/detect.test.mjs`
   (synthetic planet / EB / noise / partial data + all real files). `npm test` → 10/10 green.
