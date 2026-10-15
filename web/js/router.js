@@ -8,7 +8,11 @@
 
 export const LIGHT_MIN_PER_AU = 8.317; // 149,597,870.7 km / 299,792.458 km/s = 499.0 s
 
-export const DEFAULTS = { txDb: 30, thresholdDb: 6, comfortDb: 15, lambda: 0.5, maxRangeAU: 2.6 };
+export const DEFAULTS = { txDb: 30, thresholdDb: 6, comfortDb: 15, lambda: 0.5, maxRangeAU: 2.6, bandwidthMHz: 1 };
+
+// Shannon, C. E. (1948): capacity C = B log2(1 + SNR), SNR as a linear power ratio.
+export const capacityMbps = (snrDb, bandwidthMHz = DEFAULTS.bandwidthMHz) =>
+  bandwidthMHz * Math.log2(1 + 10 ** (snrDb / 10));
 
 // Toy link budget: tx power minus 1/d^2 spreading loss minus debris jamming.
 export function buildLinks(snap, attenuationDb, opts = {}) {
@@ -23,6 +27,7 @@ export function buildLinks(snap, attenuationDb, opts = {}) {
       const snrDb = o.txDb - 20 * Math.log10(Math.max(distAU, 1e-3)) - jammingDb;
       links.push({
         a: a.id, b: b.id, distAU, latencyMin: distAU * LIGHT_MIN_PER_AU, snrDb, jammingDb,
+        capacityMbps: capacityMbps(snrDb, o.bandwidthMHz),
         blocked: snrDb < o.thresholdDb || distAU > o.maxRangeAU,
       });
     }
@@ -119,15 +124,60 @@ function dijkstra(links, src, dst, mode, o, bannedNodes = new Set(), bannedEdges
   const nodes = [dst], used = [];
   for (let v = dst; v !== src;) { const [u, l] = prev.get(v); used.push(l); nodes.push(u); v = u; }
   nodes.reverse(); used.reverse();
+  return summarize(nodes, used, dist.get(dst));
+}
+
+function summarize(nodes, used, cost) {
   return {
-    nodes, links: used, cost: dist.get(dst),
+    nodes, links: used, cost,
     latencyMin: used.reduce((s, l) => s + l.latencyMin, 0),
     minSnrDb: Math.min(...used.map((l) => l.snrDb)),
+    capacityMbps: Math.min(...used.map((l) => l.capacityMbps ?? capacityMbps(l.snrDb))),
   };
 }
 
+// Widest (maximum-bottleneck) path: Dijkstra with "best = largest minimum capacity so far",
+// ties broken by lower latency. Pollack, M. (1960) "The maximum capacity through a network".
+function widest(links, src, dst, bannedNodes = new Set(), bannedEdges = new Set()) {
+  if (src === dst) return { nodes: [src], links: [], latencyMin: 0, minSnrDb: Infinity, capacityMbps: Infinity, cost: 0 };
+  const adj = new Map();
+  const add = (u, v, l) => { if (!adj.has(u)) adj.set(u, []); adj.get(u).push([v, l]); };
+  for (const l of links) {
+    if (l.blocked || bannedNodes.has(l.a) || bannedNodes.has(l.b)) continue;
+    if (bannedEdges.has(edgeKey(l.a, l.b))) continue;
+    add(l.a, l.b, l); add(l.b, l.a, l);
+  }
+  const cap = new Map([[src, Infinity]]), lat = new Map([[src, 0]]), prev = new Map(), done = new Set();
+  const heap = new MinHeap(); // key: [-capacity, latency] packed into one sortable number pair
+  heap.push([-Infinity, src, 0]);
+  const better = (c, t, v) => c > (cap.get(v) ?? -1) || (c === cap.get(v) && t < lat.get(v));
+  while (heap.size) {
+    const [, u] = heap.pop();
+    if (done.has(u)) continue;
+    done.add(u);
+    if (u === dst) break;
+    for (const [v, l] of adj.get(u) || []) {
+      if (done.has(v)) continue;
+      const c = Math.min(cap.get(u), l.capacityMbps ?? capacityMbps(l.snrDb));
+      const t = lat.get(u) + l.latencyMin;
+      if (better(c, t, v)) { cap.set(v, c); lat.set(v, t); prev.set(v, [u, l]); heap.push([-c + t * 1e-9, v, t]); }
+    }
+  }
+  if (!prev.has(dst)) return null;
+  const nodes = [dst], used = [];
+  for (let v = dst; v !== src;) { const [u, l] = prev.get(v); used.push(l); nodes.push(u); v = u; }
+  nodes.reverse(); used.reverse();
+  const r = summarize(nodes, used, 0);
+  return { ...r, cost: -r.capacityMbps };
+}
+
+const route = (links, src, dst, mode, o, bannedNodes, bannedEdges) => (mode === "throughput"
+  ? widest(links, src, dst, bannedNodes, bannedEdges)
+  : dijkstra(links, src, dst, mode, o, bannedNodes, bannedEdges));
+
+// mode: "fastest" (min latency) | "reliable" (latency + SNR-margin penalty) | "throughput" (widest path)
 export function bestPath(links, src, dst, mode = "fastest", opts = {}) {
-  return dijkstra(links, src, dst, mode, { ...DEFAULTS, ...opts });
+  return route(links, src, dst, mode, { ...DEFAULTS, ...opts });
 }
 
 export function alternatePath(links, src, dst, best, mode = "fastest", opts = {}) {
@@ -135,11 +185,11 @@ export function alternatePath(links, src, dst, best, mode = "fastest", opts = {}
   const o = { ...DEFAULTS, ...opts };
   const inner = new Set(best.nodes.slice(1, -1));
   const direct = inner.size === 0 ? new Set([edgeKey(src, dst)]) : new Set();
-  const independent = dijkstra(links, src, dst, mode, o, inner, direct);
+  const independent = route(links, src, dst, mode, o, inner, direct);
   if (independent) return { ...independent, independent: true };
   let alt = null; // Yen-style: forbid one link of the best path at a time, keep the cheapest
   for (const l of best.links) {
-    const r = dijkstra(links, src, dst, mode, o, new Set(), new Set([edgeKey(l.a, l.b)]));
+    const r = route(links, src, dst, mode, o, new Set(), new Set([edgeKey(l.a, l.b)]));
     if (r && (!alt || r.cost < alt.cost)) alt = r;
   }
   return alt && { ...alt, independent: false };

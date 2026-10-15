@@ -76,6 +76,30 @@ test("predictive routing leaves a link before the debris jams it", { skip: !simR
   }
 });
 
+// Data volume = bottleneck Shannon capacity of the chosen path x time (toy 1 MHz bandwidth, so
+// only the RATIO between modes is meaningful).
+function volume(scenario, mode) {
+  const w = sim.createWorld(scenario);
+  let snap = sim.snapshot(w), prev, gb = 0, lat = 0, n = 0;
+  const obs = snap.nodes.find((x) => x.kind === "observatory").id;
+  const earth = snap.nodes.find((x) => x.kind === "earth").id;
+  for (let k = 0; k < (DAYS * 24) / STEP_H; k++) {
+    prev = snap; sim.step(w, STEP_H); snap = sim.snapshot(w);
+    const b = bestPath(buildLinksAhead(prev, snap, sim.attenuationDb, STEP_H / 24, { aheadDays: 1 }), obs, earth, mode)
+      || bestPath(buildLinks(snap, sim.attenuationDb), obs, earth, mode);
+    if (b) { gb += (b.capacityMbps * 3600 * STEP_H) / 1000; lat += b.latencyMin; n++; }
+  }
+  return { gb, lat: lat / n };
+}
+
+test("max-throughput routing delivers more data than fastest", { skip: !simReady && "sim.js not implemented yet" }, () => {
+  for (const scenario of ["default", "storm"]) {
+    const fast = volume(scenario, "fastest"), wide = volume(scenario, "throughput");
+    console.log(`Data volume, ${scenario}: throughput mode +${(100 * (wide.gb / fast.gb - 1)).toFixed(1)}% vs fastest, latency ${fast.lat.toFixed(1)} -> ${wide.lat.toFixed(1)} min`);
+    assert.ok(wide.gb >= fast.gb);
+  }
+});
+
 test("data delivered through the network still reveals the planet", { skip: !simReady && "sim.js not implemented yet" }, () => {
   // Deliver Kepler-6's light curve in order, only while a path exists; detection must still work.
   const d = JSON.parse(readFileSync(new URL("../web/data/kepler-6.json", import.meta.url)));

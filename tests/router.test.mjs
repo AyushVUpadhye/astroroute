@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLinks, bestPath, alternatePath, edgeKey, LIGHT_MIN_PER_AU, DEFAULTS } from "../web/js/router.js";
+import { buildLinks, bestPath, alternatePath, edgeKey, capacityMbps, LIGHT_MIN_PER_AU, DEFAULTS } from "../web/js/router.js";
 
 // Deterministic RNG (mulberry32) so every run tests the same graphs.
 function rng(seed) {
@@ -85,6 +85,35 @@ test("routes never use blocked links; alternate differs; independent shares no r
   }
   console.log(`alternates found: ${alts} (${independents} fully independent)`);
   assert.ok(alts > 0);
+});
+
+test("throughput mode = widest path: equals brute-force best bottleneck on 1000 networks", () => {
+  const rand = rng(99);
+  let mismatches = 0;
+  for (let g = 0; g < 1000; g++) {
+    const { ids, links } = randomGraph(rand, 4 + Math.floor(rand() * 6));
+    for (const l of links) l.capacityMbps = capacityMbps(l.snrDb);
+    const src = ids[0], dst = ids[ids.length - 1];
+    let oracle = -Infinity; // max over simple paths of the min link capacity
+    const adj = new Map();
+    for (const l of links) if (!l.blocked) for (const [u, v] of [[l.a, l.b], [l.b, l.a]]) {
+      if (!adj.has(u)) adj.set(u, []); adj.get(u).push([v, l.capacityMbps]);
+    }
+    const seen = new Set([src]);
+    (function dfs(u, c) {
+      if (u === dst) { oracle = Math.max(oracle, c); return; }
+      for (const [v, w] of adj.get(u) || []) if (!seen.has(v)) { seen.add(v); dfs(v, Math.min(c, w)); seen.delete(v); }
+    })(src, Infinity);
+    const r = bestPath(links, src, dst, "throughput");
+    if (oracle === -Infinity ? r !== null : !r || Math.abs(r.capacityMbps - oracle) > 1e-9) mismatches++;
+  }
+  console.log(`widest path vs brute force: 1000 cases, ${mismatches} mismatches`);
+  assert.equal(mismatches, 0);
+});
+
+test("Shannon capacity: 0 dB on 1 MHz = 1 Mbps; capacity rises with SNR", () => {
+  assert.ok(Math.abs(capacityMbps(0) - 1) < 1e-12);
+  assert.ok(capacityMbps(30) > capacityMbps(10));
 });
 
 test("returns null when the destination is cut off", () => {
