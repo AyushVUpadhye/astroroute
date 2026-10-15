@@ -17,6 +17,12 @@ const SECONDARY_SIGMA = 5, SECONDARY_FRAC = 0.05; // hot Jupiters can show a few
 // Size: depth = (Rp/R*)^2, so Rp = R* sqrt(depth). Nothing bigger than ~2 Jupiter radii is a
 // planet (the most inflated hot Jupiters reach ~2 R_J). R_sun / R_earth = 695,700 / 6,378.1 km.
 const R_SUN_IN_EARTH = 109.1, MAX_PLANET_EARTH_RADII = 22.4;
+// Brightness: a planet seen at phase 0.5 can at most hide the light it reflects, so a secondary
+// dip deeper than (Rp/a)^2 needs a "geometric albedo" above 1 - the companion shines by itself,
+// so it is a star (the albedo test of the Kepler Robovetter, Thompson et al. 2018). a/R* from
+// Kepler's third law: a = 215.03 R_sun * (M P_yr^2)^(1/3), with M ~ R for main-sequence stars
+// (capped at 2 M_sun, which can only make the test more lenient).
+const AU_IN_R_SUN = 215.03, MAX_ALBEDO = 1;
 
 const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
 const std = (a) => { const m = mean(a); return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / Math.max(1, a.length - 1)); };
@@ -134,6 +140,13 @@ export function vet(time, flux, best, starRadius = null) {
     detail: nT >= 2 ? `${nT} separate transits seen at the same period.` : `Only ${nT} transit received so far - need at least 2.` });
 
   const o = windowDepth(odd, out), e = windowDepth(even, out);
+  // Systematics can make single transits shallower (WASP-18's 2nd and 4th TESS transits are
+  // distorted), so the error is also judged from how much transits of the same parity scatter.
+  // A real binary still fails: its odd dips are consistently different from its even ones.
+  for (const [w, parity] of [[o, 1], [e, 0]]) {
+    const deps = [...epochs].filter(([k, f]) => Math.abs(k % 2) === parity && f.length >= 3).map(([, f]) => mOut - mean(f));
+    if (deps.length >= 2) w.err = Math.max(w.err, std(deps) / Math.sqrt(deps.length));
+  }
   const oeSigma = Math.abs(o.depth - e.depth) / Math.sqrt(o.err ** 2 + e.err ** 2);
   const oeKnown = Number.isFinite(oeSigma);
   const oeFrac = Math.max(o.depth, e.depth) > 0 ? Math.abs(o.depth - e.depth) / Math.max(o.depth, e.depth) : 0;
@@ -149,7 +162,8 @@ export function vet(time, flux, best, starRadius = null) {
   const secFrac = best.depth > 0 ? s2.depth / best.depth : 0;
   const secOk = !(secSigma > SECONDARY_SIGMA && secFrac > SECONDARY_FRAC);
   checks.push({ name: "Secondary eclipse", passed: secOk, value: Number.isFinite(secSigma) ? +secSigma.toFixed(1) : null,
-    detail: secOk ? "No significant dip halfway between transits - the companion is not glowing like a star."
+    detail: secOk && secSigma > SECONDARY_SIGMA ? `A shallow dip halfway between transits (${(100 * secFrac).toFixed(1)}% of the transit, ${secSigma.toFixed(1)}σ) - small enough for a hot planet's own glow; see Brightness.`
+      : secOk ? "No significant dip halfway between transits - the companion is not glowing like a star."
       : `A ${(100 * secFrac).toFixed(0)}%-deep dip appears halfway between transits (${secSigma.toFixed(1)}σ) - the companion is a star.` });
 
   const radiusAssumed = !(starRadius > 0);
@@ -160,9 +174,21 @@ export function vet(time, flux, best, starRadius = null) {
     detail: sizeOk ? `Companion is ${radiusEarth.toFixed(1)} Earth radii (${starTxt}) - planet-sized.`
       : `Companion is ${radiusEarth.toFixed(1)} Earth radii (${starTxt}) - bigger than any known planet, so it is a star.` });
 
+  // Only judged when the secondary is clearly real; a faint one passes.
+  const rStar = radiusAssumed ? 1 : starRadius, mStar = Math.min(rStar, 2);
+  const aOverR = (AU_IN_R_SUN * Math.cbrt(mStar * (P / 365.25) ** 2)) / rStar;
+  const reflect = Math.max(0, best.depth) / aOverR ** 2; // (Rp/a)^2: the most a planet can reflect
+  const secReal = secSigma > SECONDARY_SIGMA && s2.depth > 0;
+  const albedo = secReal && reflect > 0 ? s2.depth / reflect : null;
+  const brightOk = !(albedo > MAX_ALBEDO);
+  checks.push({ name: "Brightness", passed: brightOk, value: albedo === null ? null : +albedo.toFixed(2),
+    detail: albedo === null ? "No clear secondary eclipse, so nothing to say about the companion's own light."
+      : brightOk ? `The ${(s2.depth * 1e6).toFixed(0)} ppm dip at phase 0.5 means albedo ${albedo.toFixed(2)} - a hot planet reflecting and glowing can do that.`
+      : `The ${(s2.depth * 1e6).toFixed(0)} ppm dip at phase 0.5 would need albedo ${albedo.toFixed(1)} (> ${MAX_ALBEDO}): it gives off more light than a planet can reflect, so it is a star.` });
+
   let verdict = "PLANET CANDIDATE";
   if (nT < 2) verdict = "NEED MORE DATA";
   else if (!snrOk) verdict = "NO CONVINCING SIGNAL"; // too weak to judge its shape
-  else if (!oeOk || !secOk || !sizeOk) verdict = "LIKELY FALSE POSITIVE";
+  else if (!oeOk || !secOk || !sizeOk || !brightOk) verdict = "LIKELY FALSE POSITIVE";
   return { checks, verdict, radiusEarth, radiusAssumed };
 }

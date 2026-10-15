@@ -52,6 +52,7 @@ Scenarios: Default (1 swarm) · Storm (3 swarms) · Comet rain. Drop your own sw
 | Router vs brute force | 0 mismatches |
 | Proactive / reactive / fixed delivery | 99.8% / 100% / 81.8% |
 | BLS period recovery | 9 / 9 |
+| NASA false positives caught | 2 / 2 |
 | Network resilience at start | 71 / 100 |
 | Swarm impact at t=0 | 1 blocked, 17 jammed |
 

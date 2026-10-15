@@ -17,6 +17,7 @@ Keep the signal alive, find the world — live rerouting of deep-space telescope
 | Paths broken in use — plain vs predictive routing (1-day lookahead) | **5 → 0** (default), **6 → 0** (storm) |
 | Data volume — max-throughput vs fastest mode | **+22.4%** (default), **+31.2%** (storm) |
 | BLS recovered NASA-published periods (within 1% or harmonic) | **9 / 9** |
+| Verdicts on real NASA data — confirmed planets / known false positives | **6 / 6 planets**, **2 / 2 false positives caught** |
 | Network resilience score at start | **71 / 100** |
 | Swarm impact at t=0 | **1 link blocked, 17 jammed** |
 
@@ -24,7 +25,7 @@ Keep the signal alive, find the world — live rerouting of deep-space telescope
 
 ```bash
 python -m http.server 8000 -d web   # http://localhost:8000
-node --test tests/                   # 31 tests, all green
+npm test                             # 52 tests, all green
 node tools/validate.mjs              # full report → results/validation.csv
 ```
 

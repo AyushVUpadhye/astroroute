@@ -67,8 +67,25 @@ test("real NASA light curves: period recovery and verdicts", () => {
     const r = best.period / d.publishedPeriod;
     const ok = Math.abs(r - 1) < 0.01;
     total++; if (ok) exact++;
-    console.log(`${d.target.padEnd(13)} ${d.kind.padEnd(15)} found ${best.period.toFixed(4)} NASA ${d.publishedPeriod.toFixed(4)} ${ok ? "exact" : "x" + r.toFixed(2)}  SNR ${best.snr.toFixed(0).padStart(4)}  ${v.verdict}  R=${v.radiusEarth.toFixed(1)}${v.radiusAssumed ? "?" : ""}  ${ms.toFixed(0)} ms`);
+    const albedo = v.checks.find((c) => c.name === "Brightness").value;
+    console.log(`${d.target.padEnd(13)} ${d.kind.padEnd(15)} found ${best.period.toFixed(4)} NASA ${d.publishedPeriod.toFixed(4)} ${ok ? "exact" : "x" + r.toFixed(2)}  SNR ${best.snr.toFixed(0).padStart(4)}  ${v.verdict}  R=${v.radiusEarth.toFixed(1)}${v.radiusAssumed ? "?" : ""}  albedo=${albedo ?? "-"}  ${ms.toFixed(0)} ms`);
     assert.ok(ms < 3000, "BLS must finish within 3 s");
+    if (d.kind === "planet") assert.equal(v.verdict, "PLANET CANDIDATE", d.target);
+    if (d.kind === "false_positive") assert.equal(v.verdict, "LIKELY FALSE POSITIVE", d.target);
   }
   console.log(`BLS recovered ${exact}/${total} NASA periods within 1%`);
+});
+
+test("secondary eclipse too bright for a planet -> LIKELY FALSE POSITIVE", () => {
+  // Same planet-like 1% transit, plus a 0.04% dip at phase 0.5: only 4% of the primary, so the
+  // "Secondary eclipse" check lets it through, but around a Sun-like star at 2.5 d a planet can
+  // reflect at most ~0.017% - only a glowing star explains it (KIC 6756669 in miniature).
+  const planet = synth({ period: 2.5, depthFn: () => 0.01, noise: 0.0003, seed: 4 });
+  const star = synth({ period: 2.5, depthFn: () => 0.01, noise: 0.0003, secondary: 0.0004, seed: 4 });
+  const pv = vet(planet.time, planet.flux, bls(planet.time, planet.flux).best, 1);
+  const sv = vet(star.time, star.flux, bls(star.time, star.flux).best, 1);
+  assert.equal(pv.verdict, "PLANET CANDIDATE");
+  assert.equal(sv.verdict, "LIKELY FALSE POSITIVE");
+  assert.ok(sv.checks.find((c) => c.name === "Secondary eclipse").passed);
+  assert.ok(!sv.checks.find((c) => c.name === "Brightness").passed);
 });
