@@ -9,6 +9,8 @@
   Keep last frame's snapshot as `prevSnap`. Draw links with `forecastBlocked: true` as a thin
   dotted red line ("will be jammed"). In the event log mark each reroute "proactive" (old path
   still up) or "forced" (old path already jammed). Measured: forced reroutes 5 → 0 with it on.
+- NEW (12:44): **3 routing modes.** Mode toggle Fastest / Reliable / **Max throughput** (`bestPath(links, obs, earth, "throughput")`).
+  Every route has `capacityMbps` (Shannon bottleneck) — show "Throughput X.X Mbps" next to latency.
 - A backup UI is being built on branch `fallback/ui` in case of time trouble — push yours to main
   as soon as it runs; yours wins if it works.
 
