@@ -244,3 +244,157 @@ export function linkThreatMap(snap) {
   }
   return pairs.sort((x, y) => y.attenDb - x.attenDb);
 }
+
+// ── Winning features ─────────────────────────────────────────────────────────
+
+// How many hours until the first link in this path jams.
+// The "weakest link" in time — tells you exactly when to pre-emptively reroute.
+// Returns { lifetimeHours, bottleneckLink: {a, b}, allLinks: [{a, b, inHours, maxAttenDb}] }
+export function pathLifetime(snap, nodeIds, horizonHours = 48, dtHours = 1) {
+  const ids = nodeIds.map(id => (typeof id === "string" ? id : id.id));
+  const allLinks = [];
+  for (let i = 0; i < ids.length - 1; i++) {
+    const a = ids[i], b = ids[i + 1];
+    const pred = predictJam(snap, a, b, horizonHours, dtHours);
+    allLinks.push({ a, b, inHours: pred.willJam ? pred.inHours : horizonHours, maxAttenDb: pred.maxAttenDb, peakHours: pred.peakHours });
+  }
+  if (allLinks.length === 0) return { lifetimeHours: Infinity, bottleneckLink: null, allLinks };
+  const bottleneck = allLinks.reduce((min, l) => l.inHours < min.inHours ? l : min, allLinks[0]);
+  return { lifetimeHours: bottleneck.inHours, bottleneckLink: { a: bottleneck.a, b: bottleneck.b }, allLinks };
+}
+
+// 0–100 score for how healthy the relay network is right now.
+// Measures the fraction of potential links (within maxRangeAU) that are debris-free.
+// 100 = all links clear; 0 = every reachable link is fully jammed.
+// Also returns counts so the UI can show "7/10 links clear".
+export function networkResilienceScore(snap, maxRangeAU = 2.6) {
+  const BLOCK_DB = 24; // mirror router threshold
+  let total = 0, clear = 0, partialJam = 0, blocked = 0;
+  const nodes = snap.nodes;
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dist = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+      if (dist > maxRangeAU) continue;
+      total++;
+      const db = attenuationDb(snap, nodes[i], nodes[j]);
+      if (db === 0) clear++;
+      else if (db < BLOCK_DB) partialJam++;
+      else blocked++;
+    }
+  }
+  if (total === 0) return { score: 100, total: 0, clear: 0, partialJam: 0, blocked: 0 };
+  const score = Math.round(100 * (clear + 0.5 * partialJam) / total);
+  return { score, total, clear, partialJam, blocked };
+}
+
+// Time-series forecast of network threat level over the next horizonHours.
+// Does NOT mutate world — simulates a copy of debris positions forward.
+// Returns [{ hours, threatLevel, maxAttenDb, linksBlocked }] — like a weather forecast.
+// threatLevel: 0 = clear, 1 = partial jam on some links, 2 = at least one link blocked.
+export function forecastNetworkHealth(snap, horizonHours = 24, dtHours = 1) {
+  const BLOCK_DB = 24;
+  const nodes = snap.nodes;
+  const maxRangeAU = 2.6;
+  const dtDays = dtHours / 24;
+  const steps = Math.ceil(horizonHours / dtHours);
+  const forecast = [];
+
+  for (let i = 0; i <= steps; i++) {
+    const hours = i * dtHours;
+    // Project debris positions forward (no mutation).
+    const projected = snap.debris.map(d => ({
+      ...d, x: d.x + d.vx * dtDays * i, y: d.y + d.vy * dtDays * i,
+    }));
+    const projSnap = { nodes, debris: projected };
+
+    let maxAttenDb = 0, linksBlocked = 0, anyJam = false;
+    for (let a = 0; a < nodes.length; a++) {
+      for (let b = a + 1; b < nodes.length; b++) {
+        if (Math.hypot(nodes[a].x - nodes[b].x, nodes[a].y - nodes[b].y) > maxRangeAU) continue;
+        const db = attenuationDb(projSnap, nodes[a], nodes[b]);
+        if (db > maxAttenDb) maxAttenDb = db;
+        if (db >= BLOCK_DB) linksBlocked++;
+        else if (db > 0) anyJam = true;
+      }
+    }
+    const threatLevel = linksBlocked > 0 ? 2 : anyJam ? 1 : 0;
+    forecast.push({ hours, threatLevel, maxAttenDb: +maxAttenDb.toFixed(2), linksBlocked });
+  }
+  return forecast;
+}
+
+// Which relay is most critical? Ranks relays by how many range-limited link-pairs
+// they bridge — removing the top relay would disconnect the most routes.
+// Returns [{ id, name, kind, bridgedPairs, criticality }] sorted descending.
+export function relayVulnerabilityRanking(snap, maxRangeAU = 2.6) {
+  const nodes = snap.nodes;
+
+  // Build adjacency of currently in-range (not necessarily unblocked) links.
+  const inRange = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) <= maxRangeAU;
+
+  // For each non-earth, non-observatory node: count how many (src, dst) pairs
+  // it lies on a shortest hop-count path between.
+  // Simplified betweenness: BFS from every node, count relay as bridge if removing it
+  // disconnects any previously connected (src, dst) pair.
+  const ids = nodes.map(n => n.id);
+  const adj = new Map();
+  for (const n of nodes) {
+    adj.set(n.id, nodes.filter(m => m.id !== n.id && inRange(n, m)).map(m => m.id));
+  }
+
+  function bfsReachable(src, banned) {
+    const visited = new Set([src]);
+    const queue = [src];
+    while (queue.length) {
+      const u = queue.shift();
+      for (const v of adj.get(u) || []) {
+        if (v !== banned && !visited.has(v)) { visited.add(v); queue.push(v); }
+      }
+    }
+    return visited;
+  }
+
+  const obsId = nodes.find(n => n.kind === "observatory")?.id;
+  const earthId = nodes.find(n => n.kind === "earth")?.id;
+  const baseReachable = bfsReachable(obsId, null);
+
+  const results = [];
+  for (const node of nodes) {
+    if (node.kind === "earth" || node.kind === "observatory") continue;
+    const reachable = bfsReachable(obsId, node.id);
+    // Count how many nodes are lost by removing this relay.
+    const lostNodes = [...baseReachable].filter(id => !reachable.has(id) && id !== node.id).length;
+    const disconnectsEarth = baseReachable.has(earthId) && !reachable.has(earthId);
+    results.push({
+      id: node.id, name: node.name, kind: node.kind,
+      lostNodes, disconnectsEarth,
+      criticality: disconnectsEarth ? lostNodes + 1000 : lostNodes,
+    });
+  }
+  return results.sort((a, b) => b.criticality - a.criticality);
+}
+
+// For a single debris cluster: how many in-range links does it currently block vs partially jam?
+// Returns { debrisId, kind, blocked: [{a,b,attenDb}], jammed: [{a,b,attenDb}], clear: number, maxAttenDb }
+export function computeSwarmImpact(snap, debrisId, maxRangeAU = 2.6) {
+  const BLOCK_DB = 24;
+  const d = snap.debris.find(x => x.id === debrisId);
+  if (!d) return null;
+  const isolatedSnap = { nodes: snap.nodes, debris: [d] };
+  const nodes = snap.nodes;
+  const blocked = [], jammed = [];
+  let clear = 0, maxAttenDb = 0;
+
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) > maxRangeAU) continue;
+      const db = attenuationDb(isolatedSnap, nodes[i], nodes[j]);
+      if (db > maxAttenDb) maxAttenDb = db;
+      const entry = { a: nodes[i].id, b: nodes[j].id, attenDb: +db.toFixed(2) };
+      if (db >= BLOCK_DB) blocked.push(entry);
+      else if (db > 0) jammed.push(entry);
+      else clear++;
+    }
+  }
+  return { debrisId, kind: d.kind, blocked, jammed, clear, maxAttenDb: +maxAttenDb.toFixed(2) };
+}

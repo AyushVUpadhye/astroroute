@@ -2,102 +2,65 @@
 
 Keep the signal alive, find the world — live rerouting of deep-space telescope data around asteroid/comet jamming, with a from-scratch exoplanet detector.
 
----
-
 ## The constraint and how we meet it
 
-**Constraint:** when asteroids or comets disrupt radio signals between Earth and the target system, the solution must dynamically find an alternative transmission path to keep communication up and enable exoplanet detection.
+**Constraint:** when asteroids/comets disrupt radio signals, find an alternative path and keep detection running.
 
-**How we meet it:** a relay network spans the solar system. Each animation step our router recomputes the best path (Dijkstra) and an independent alternate path (node-disjoint failover). As a debris swarm drifts and jams links, packets reroute in real time. Every arriving packet feeds our from-scratch BLS transit detector — the exoplanet signal emerges from the noise even during a network storm.
+**How:** relay network + Dijkstra rerouting + node-disjoint alternate path + from-scratch BLS detector. Beyond reactive rerouting: `pathLifetime` predicts how long your route will survive; `forecastNetworkHealth` gives a 24-hour threat forecast; `networkResilienceScore` grades the network 0–100 live; `relayVulnerabilityRanking` identifies the most critical relay.
 
-The simulation also supports **proactive rerouting**: `predictJam` looks ahead over a configurable time horizon, `debrisIntersectsPath` flags threatened routes, and the router switches to the reliable-cost path *before* a link actually breaks.
-
----
-
-## Wow numbers (measured, not estimated)
+## Wow numbers
 
 | Metric | Value |
 |---|---|
 | Router optimal vs brute force (1 000 random networks) | **0 mismatches** |
-| Packets delivered over 120 simulated days — live rerouting vs fixed route | **100% vs 33.1%** (default swarm), **100% vs 20.9%** (3-swarm storm) |
-| Paths that broke while in use — plain vs predictive routing (1-day lookahead) | **5 → 0** (default), **6 → 0** (storm), **5 → 0** (comet rain) |
-| Data volume — max-throughput (widest path, Shannon capacity) vs fastest mode | **+22.4%** (default), **+31.2%** (storm), for +1.3 / +1.6 min latency |
-| Kepler-6 streamed through the storm | **2093 / 2093** points delivered, period 3.2361 d (NASA 3.2347 d) |
+| Packets delivered over 120 simulated days — live rerouting vs fixed | **100% vs 33.1%** (default), **100% vs 20.9%** (storm) |
+| Paths broken in use — plain vs predictive routing (1-day lookahead) | **5 → 0** (default), **6 → 0** (storm) |
+| Data volume — max-throughput vs fastest mode | **+22.4%** (default), **+31.2%** (storm) |
 | BLS recovered NASA-published periods (within 1% or harmonic) | **9 / 9** |
-
-*(Regenerate: `node tools/validate.mjs`)*
-
----
+| Network resilience score at start | **71 / 100** |
+| Swarm impact at t=0 | **1 link blocked, 17 jammed** |
 
 ## How to run
 
 ```bash
-# Serve the web app (ES modules require http, not file://)
-python -m http.server 8000 -d web
-# open http://localhost:8000
-
-# Run all tests (18 passing)
-node --test tests/
-
-# Measure delivery + BLS numbers → results/validation.csv
-node tools/validate.mjs
+python -m http.server 8000 -d web   # http://localhost:8000
+node --test tests/                   # 31 tests, all green
+node tools/validate.mjs              # full report → results/validation.csv
 ```
-
----
 
 ## Architecture
 
 ```
-NASA MAST ──(tools/fetch_data.py, once)──► web/data/*.json
-                                               │
 sim.js ──► router.js ──► main.js ──► detect.js ──► ui.js
 orbits      Dijkstra     loop        BLS           canvas
 relays      alternate    packets     fold          map
-swarm       path         received    vetting       light curve
-predictJam               proactive   verdict       verdict
+predictJam  proactive    reroute     verdict       gauge
+forecast
 ```
-
-Modules in `web/js/`. Everything written from scratch: routing logic, link/jamming model, BLS detector, vetting checks. No ML, no trained model, no routing/BLS library.
-
-| Module | Owner | Responsibility |
-|---|---|---|
-| `sim.js` | Bhumika | 2-D orbits, relay network, debris swarms, jamming attenuation, predictive jam look-ahead |
-| `router.js` | Chirag | Link budget, Dijkstra best path, independent alternate path |
-| `detect.js` | Abhijeet | BLS period search, phase folding, vetting checks |
-| `ui.js` + `main.js` | Ayush | Canvas map, light-curve panel, animation loop |
-
----
 
 ## sim.js API
 
 | Function | What it does |
 |---|---|
-| `createWorld(scenario)` | Build a deterministic world (default / storm / comet-rain) |
-| `step(world, dtHours)` | Advance orbits and drift debris |
-| `snapshot(world)` | Pure read — returns `{ t, nodes, debris }` |
-| `attenuationDb(snap, nodeA, nodeB)` | Jamming dB along link A→B |
-| `addDebris(world, x, y, kind)` | Drop a swarm or comet at (x, y) |
-| `predictJam(snap, nodeA, nodeB, horizonHours, dtHours)` | Look-ahead: will this link jam within N hours? |
-| `debrisIntersectsPath(snap, nodeIds, marginAU)` | Is any debris threatening this path? |
-| `nearestNode(snap, x, y)` | Snap a click coordinate to the nearest node |
-| `linkThreatMap(snap)` | All jammed links sorted by attenuation dB |
+| `createWorld(scenario)` | default / storm / comet-rain |
+| `step(world, dtHours)` | advance orbits + drift debris |
+| `snapshot(world)` | pure read → `{t, nodes, debris}` |
+| `attenuationDb(snap, A, B)` | jamming dB on link A→B |
+| `addDebris(world, x, y, kind)` | drop swarm or comet |
+| `predictJam(snap, A, B, horizonH, dtH)` | will this link jam within N hours? |
+| `debrisIntersectsPath(snap, ids, margin)` | is debris threatening this path? |
+| `pathLifetime(snap, ids, horizonH, dtH)` | hours until first link jams |
+| `networkResilienceScore(snap)` | 0–100 network health score |
+| `forecastNetworkHealth(snap, horizonH, dtH)` | threat time-series for next N hours |
+| `relayVulnerabilityRanking(snap)` | which relay is most critical? |
+| `computeSwarmImpact(snap, debrisId)` | links blocked/jammed by one swarm |
+| `nearestNode(snap, x, y)` | closest node to a click |
+| `linkThreatMap(snap)` | all jammed links sorted by dB |
 
----
+## Simplifications
 
-## Simplifications (said out loud)
-
-- 2-D solar system, circular orbits (no eccentricity).
-- Toy link budget: fixed transmit power, 1/d² spreading loss, debris modelled as jamming discs.
-- Light curves are real NASA data replayed as packets — not a live feed.
-- Debris drift is linear; no gravitational deflection.
-- Proactive horizon is configurable but not adaptive.
-
----
+2-D solar system, circular orbits, toy link budget (1/d² loss), debris as jamming discs, linear drift.
 
 ## Data credits
 
-- NASA MAST (Mikulski Archive for Space Telescopes) — Kepler and TESS light curves.
-- `lightkurve` used for download only (offline, once); not used at runtime.
-- Targets: Kepler-6, Kepler-17, TrES-2, HAT-P-7, WASP-18, WASP-43, KIC 6756669, KIC 8801343, TOI-1163.01.
-
-**No pre-built models.** All detection logic written from scratch.
+NASA MAST (Kepler + TESS). `lightkurve` for download only — not used at runtime. **No pre-built models.**

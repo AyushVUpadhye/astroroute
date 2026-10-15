@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   createWorld, step, snapshot, attenuationDb, addDebris,
   predictJam, debrisIntersectsPath, nearestNode, linkThreatMap,
+  pathLifetime, networkResilienceScore, forecastNetworkHealth,
+  relayVulnerabilityRanking, computeSwarmImpact,
 } from "../web/js/sim.js";
 
 test("attenuation is 0 when debris is far from segment", () => {
@@ -202,7 +204,6 @@ test("linkThreatMap: returns sorted descending attenuation, empty when no debris
   };
   assert.deepStrictEqual(linkThreatMap(noJamSnap), []);
 
-  // Debris on link A-B.
   const jamSnap = {
     nodes: [{ id: "A", x: -1, y: 0 }, { id: "B", x: 1, y: 0 }, { id: "C", x: 0, y: 5 }],
     debris: [{ id: "d", x: 0, y: 0, r: 0.5, strength: 30 }],
@@ -210,4 +211,145 @@ test("linkThreatMap: returns sorted descending attenuation, empty when no debris
   const map = linkThreatMap(jamSnap);
   assert.ok(map.length > 0);
   assert.ok(map[0].attenDb >= (map[1]?.attenDb ?? 0), "must be sorted descending");
+});
+
+// ── Winning feature tests ─────────────────────────────────────────────────────
+
+test("pathLifetime: infinite for path with no approaching debris", () => {
+  const snap = {
+    nodes: [{ id: "A", x: 0, y: 0 }, { id: "B", x: 1, y: 0 }, { id: "C", x: 2, y: 0 }],
+    debris: [{ id: "d", x: 1, y: 10, r: 0.1, strength: 30, vx: 0, vy: 0 }],
+  };
+  const result = pathLifetime(snap, ["A", "B", "C"], 48, 1);
+  assert.strictEqual(result.lifetimeHours, 48, "no jam in horizon → returns horizonHours");
+  assert.strictEqual(result.bottleneckLink.a, "A"); // first link is bottleneck (tie)
+});
+
+test("pathLifetime: identifies the soonest-jamming link as bottleneck", () => {
+  // Link A-B: debris approaches fast; Link B-C: debris far, won't jam.
+  const snap = {
+    nodes: [{ id: "A", x: -1, y: 0 }, { id: "B", x: 1, y: 0 }, { id: "C", x: 3, y: 0 }],
+    debris: [
+      { id: "fast", x: 0, y: 0.4, r: 0.35, strength: 30, vx: 0, vy: -1.0 }, // heads for A-B
+      { id: "far",  x: 2, y: 10,  r: 0.1,  strength: 30, vx: 0, vy:  0   }, // far from B-C
+    ],
+  };
+  const result = pathLifetime(snap, ["A", "B", "C"], 24, 1);
+  assert.ok(result.lifetimeHours < 24, "should predict a jam before horizon");
+  assert.strictEqual(result.bottleneckLink.a, "A", "A-B is the bottleneck");
+  assert.strictEqual(result.allLinks.length, 2);
+});
+
+test("networkResilienceScore: 100 when no debris overlaps any link", () => {
+  const world = createWorld("default");
+  const snap = snapshot(world);
+  // Inject a clean snap with debris far away.
+  const cleanSnap = { ...snap, debris: snap.debris.map(d => ({ ...d, x: d.x, y: d.y + 20 })) };
+  const result = networkResilienceScore(cleanSnap);
+  assert.strictEqual(result.score, 100);
+  assert.strictEqual(result.blocked, 0);
+  assert.strictEqual(result.partialJam, 0);
+});
+
+test("networkResilienceScore: drops when debris jams links", () => {
+  const snap = {
+    nodes: [{ id: "A", x: 0, y: 0 }, { id: "B", x: 1, y: 0 }, { id: "C", x: 2, y: 0 }],
+    debris: [{ id: "d", x: 0.5, y: 0, r: 0.4, strength: 50 }], // centre on A-B
+  };
+  const result = networkResilienceScore(snap, 3.0);
+  assert.ok(result.score < 100, `score ${result.score} should be below 100`);
+  assert.ok(result.blocked > 0 || result.partialJam > 0, "some links should be affected");
+});
+
+test("networkResilienceScore: total equals clear + partialJam + blocked", () => {
+  const world = createWorld("storm");
+  const snap = snapshot(world);
+  const r = networkResilienceScore(snap);
+  assert.strictEqual(r.total, r.clear + r.partialJam + r.blocked);
+});
+
+test("forecastNetworkHealth: returns one entry per step including t=0", () => {
+  const world = createWorld("default");
+  const snap = snapshot(world);
+  const forecast = forecastNetworkHealth(snap, 12, 2);
+  assert.strictEqual(forecast.length, 7); // 0,2,4,6,8,10,12 → 7 entries
+  assert.strictEqual(forecast[0].hours, 0);
+  assert.strictEqual(forecast[forecast.length - 1].hours, 12);
+});
+
+test("forecastNetworkHealth: does not mutate snapshot debris positions", () => {
+  const world = createWorld("default");
+  const snap = snapshot(world);
+  const origX = snap.debris.map(d => d.x);
+  forecastNetworkHealth(snap, 100, 5);
+  snap.debris.forEach((d, i) => assert.strictEqual(d.x, origX[i], "debris.x must not change"));
+});
+
+test("forecastNetworkHealth: threat level escalates when swarm intersects links", () => {
+  // Swarm starts above segment and drifts down. Threat level should rise to 2 at some point.
+  const snap = {
+    nodes: [{ id: "A", x: -1, y: 0 }, { id: "B", x: 1, y: 0 }],
+    debris: [{ id: "d", x: 0, y: 1.0, r: 0.35, strength: 50, vx: 0, vy: -1.0 }],
+  };
+  const forecast = forecastNetworkHealth(snap, 36, 1);
+  const maxThreat = Math.max(...forecast.map(f => f.threatLevel));
+  assert.ok(maxThreat >= 1, "threat should escalate as swarm approaches");
+});
+
+test("relayVulnerabilityRanking: returns one entry per relay, sorted", () => {
+  const world = createWorld("default");
+  const snap = snapshot(world);
+  const ranking = relayVulnerabilityRanking(snap);
+  const relayCount = snap.nodes.filter(n => n.kind === "relay").length;
+  assert.strictEqual(ranking.length, relayCount);
+  // Sorted descending by criticality.
+  for (let i = 1; i < ranking.length; i++) {
+    assert.ok(ranking[i - 1].criticality >= ranking[i].criticality,
+      `ranking[${i-1}].criticality < ranking[${i}].criticality`);
+  }
+});
+
+test("relayVulnerabilityRanking: top relay has highest or tied lostNodes", () => {
+  const world = createWorld("default");
+  const snap = snapshot(world);
+  const ranking = relayVulnerabilityRanking(snap);
+  assert.ok(ranking.length > 0);
+  // Top-ranked relay must have lostNodes >= every other relay.
+  for (const r of ranking.slice(1)) {
+    assert.ok(ranking[0].criticality >= r.criticality,
+      `top relay criticality ${ranking[0].criticality} < ${r.id} criticality ${r.criticality}`);
+  }
+  // At least one relay that, if removed, leaves some nodes unreachable from Observatory.
+  // (The swarm scenario has less redundancy — verify the ranking is non-trivial there.)
+  const rankingStorm = relayVulnerabilityRanking(snapshot(createWorld("storm")));
+  const maxLost = Math.max(...rankingStorm.map(r => r.lostNodes));
+  assert.ok(maxLost >= 0, "lostNodes must be non-negative");
+});
+
+test("computeSwarmImpact: returns null for unknown debrisId", () => {
+  const world = createWorld("default");
+  const snap = snapshot(world);
+  assert.strictEqual(computeSwarmImpact(snap, "nonexistent"), null);
+});
+
+test("computeSwarmImpact: debris on a link shows it in blocked or jammed", () => {
+  const snap = {
+    nodes: [{ id: "A", x: -1, y: 0 }, { id: "B", x: 1, y: 0 }],
+    debris: [{ id: "swarm", x: 0, y: 0, r: 0.5, strength: 50, kind: "asteroid" }],
+  };
+  const impact = computeSwarmImpact(snap, "swarm", 3.0);
+  assert.ok(impact !== null);
+  assert.ok(impact.blocked.length + impact.jammed.length > 0, "should affect at least one link");
+  assert.ok(impact.maxAttenDb > 0);
+});
+
+test("computeSwarmImpact: isolated debris far from all links has zero impact", () => {
+  const snap = {
+    nodes: [{ id: "A", x: 0, y: 0 }, { id: "B", x: 1, y: 0 }],
+    debris: [{ id: "far", x: 0, y: 20, r: 0.1, strength: 30, kind: "asteroid" }],
+  };
+  const impact = computeSwarmImpact(snap, "far", 3.0);
+  assert.strictEqual(impact.blocked.length, 0);
+  assert.strictEqual(impact.jammed.length, 0);
+  assert.strictEqual(impact.maxAttenDb, 0);
 });

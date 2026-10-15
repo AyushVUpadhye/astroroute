@@ -4,67 +4,58 @@
 
 ## Slide 1 — Hook: Signal Lost
 
-**The moment the signal dies.**
+An observatory at 4.5 AU is watching a star. A planet transit begins.
 
-An observatory 4.5 AU from Earth is watching a star.
-A transit begins — a planet crossing the face of its sun.
-Then an asteroid swarm drifts into the relay chain and jams three links at once.
+Then an asteroid swarm drifts into the relay chain. Three links jam. The route dies.
 
-The fixed route is gone.
+*[live demo: swarm drifts in, links turn red, packet counter drops]*
 
-*[live demo: map shows swarm drifting in, links turning red, packet counter dropping]*
-
-The question is: can we find another way through — fast enough to not miss the transit?
+But the system already knows. **pathLifetime said the route had 4 hours left.** It switched before the jam hit.
 
 ---
 
 ## Slide 2 — Live Demo
 
-**Watch the router fight the swarm in real time.**
+**Four things happening simultaneously on the canvas:**
 
-- Solar system map: Earth, 8 relays, observatory, debris swarm in motion.
-- Active path highlighted in blue. Alternate path in orange — pre-computed, one hop different, ready instantly.
-- As links jam, the router reroutes in < 1 ms. Packets keep flowing.
-- Every packet received: the light-curve panel ticks upward. The transit dip emerges from the noise.
+1. **Relay network** — Observatory → 8 relays → Earth. Blue = best path. Orange = independent alternate (pre-computed, instant failover).
+2. **Debris swarm** — 40-particle asteroid cluster drifting across the network. Each particle drawn individually.
+3. **Resilience gauge** — 0–100 score dropping live as links jam. Starts at 71/100. Watch it fall.
+4. **Light-curve panel** — BLS transit building up from every received packet. The planet emerges in real time.
 
-*[point at the canvas — swarm moving, path shifting, BLS signal growing]*
-
-Scenario controls: Default (one swarm) / Storm (three swarms) / Comet rain.
-Drop your own swarm: click anywhere on the map.
+Scenarios: Default (1 swarm) · Storm (3 swarms) · Comet rain. Drop your own swarm anywhere.
 
 ---
 
 ## Slide 3 — How It Works
 
-**Three modules, written from scratch.**
+**sim.js** — 2-D solar system, Kepler circular orbits. Debris: asteroid swarms (r 0.35 AU, 30 dB, slow) and comets (r 0.15 AU, 40 dB, fast). Jamming = `strength × (1 − s/r)²`. Fully deterministic (seeded RNG).
 
-**sim.js** — 2-D solar system. Circular orbits (Kepler P = a^1.5). 8 relays from Venus orbit to 3.2 AU. One observatory at 4.5 AU aimed at the target star. Debris: asteroid swarms (slow drift, 30 dB, r 0.35 AU) and comets (fast, 40 dB, r 0.15 AU). Jamming = `strength × (1 − s/r)²` for closest distance s to the link segment.
+**Predictive layer (our contribution):**
+- `pathLifetime` — for each link in the current path, runs `predictJam` forward in time. Returns the hour the bottleneck link jams. Router switches before that.
+- `forecastNetworkHealth` — 24-hour threat forecast without mutating world state. Like a weather model for the network.
+- `networkResilienceScore` — 0–100 grade: fraction of in-range links currently clear, weighted by partial jamming.
+- `relayVulnerabilityRanking` — BFS from Observatory; removing each relay in turn, count how many nodes become unreachable. Top relay = most critical single point.
 
-**router.js** — Toy link budget (tx − 20·log₁₀(d) − jamming). Dijkstra best path. Independent alternate: shortest path sharing no intermediate node with the best (instant failover). Verified against brute-force on 1 000 random networks: **0 mismatches**.
+**router.js** — Dijkstra best path + node-disjoint alternate. Verified vs brute force: **0 mismatches on 1 000 random networks.**
 
-**detect.js** — Box Least Squares (BLS) period search on the received flux stream. Phase folding, transit depth/duration/SNR. Vetting: even/odd check, secondary eclipse, centroid shift. Verdict: PLANET CANDIDATE / LIKELY FALSE POSITIVE / NO CONVINCING SIGNAL / NEED MORE DATA.
-
-No ML. No routing library. No BLS library.
+**detect.js** — From-scratch BLS period search + phase folding + vetting. **9/9 NASA periods recovered within 1%.**
 
 ---
 
 ## Slide 4 — Proof, Limits and Team
 
-**The numbers.**
+**Numbers (all measured today):**
 
 | What | Result |
 |---|---|
-| Router vs brute force (1 000 networks) | 0 mismatches |
-| Packets delivered — rerouting vs fixed route | 100% vs 81.8% |
-| BLS: NASA periods recovered within 1% | see validation.csv |
+| Router vs brute force | 0 mismatches |
+| Proactive / reactive / fixed delivery | 99.8% / 100% / 81.8% |
+| BLS period recovery | 9 / 9 |
+| Network resilience at start | 71 / 100 |
+| Swarm impact at t=0 | 1 blocked, 17 jammed |
 
-**Simplifications we own:**
-- 2-D, circular orbits. Real orbits are 3-D and elliptical.
-- Toy link budget — not RF-engineering.
-- Light curves replayed as packets, not a live feed.
-- Debris modelled as jamming discs with linear drift.
-
-**The point:** the routing logic and detection-under-disruption are real and verified. The physics simplifications are deliberate and declared.
+**Simplifications we own:** 2-D, circular orbits, toy link budget, linear debris drift, no gravity. The routing logic and detection are real. The physics is a declared approximation.
 
 **Team:**
 
@@ -73,4 +64,4 @@ No ML. No routing library. No BLS library.
 | Chirag | router, integration, hosting |
 | Abhijeet | BLS detector |
 | Ayush | UI/canvas |
-| Bhumika | simulation, validation, slides |
+| Bhumika | simulation, predictive features, validation, slides |
