@@ -3,7 +3,7 @@ import * as router from "./router.js";
 import * as realSim from "./sim.js";
 import * as realDetect from "./detect.js";
 import { COLORS, drawChart, renderRoute, renderLog, renderProgress, renderVerdict,
-  renderHopThreats, renderTransitWindows, latestOnly } from "./ui.js";
+  renderHopThreats, renderTransitWindows, drawHeatmap, latestOnly } from "./ui.js";
 import { Map3D } from "./map3d.js";
 
 // sim.js and detect.js are implemented on main, so the real modules run. The small mocks below
@@ -569,7 +569,10 @@ function resetAll() {
 function showTarget(meta) {
   $("picker-label").textContent = meta ? meta.target : "—";
   $("det-target").textContent = meta ? `${meta.target} · ${meta.mission}` : "—";
-  document.querySelectorAll(".picker-item").forEach((b) => b.classList.toggle("active", b.dataset.slug === meta?.slug));
+  document.querySelectorAll(".picker-item").forEach((b) => {
+    const on = b.dataset.slug === meta?.slug;
+    b.classList.toggle("active", on); b.setAttribute("aria-selected", String(on));
+  });
 }
 
 // Picking targets quickly overlaps fetches; a slower, older response must not replace the
@@ -613,7 +616,7 @@ async function loadTargets() {
   const menu = $("picker-menu");
   menu.replaceChildren(...S.targets.map((t) => {
     const b = document.createElement("button");
-    b.className = "picker-item"; b.dataset.slug = t.slug; b.setAttribute("role", "option");
+    b.className = "picker-item"; b.dataset.slug = t.slug; b.setAttribute("role", "option"); b.tabIndex = -1;
     const dot = document.createElement("span"); dot.className = "kind-dot"; dot.style.background = KIND_COLOR[t.kind] || COLORS.muted;
     const name = document.createElement("span"); name.textContent = t.target;
     const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = `${t.mission} · ${t.kind.replace("_", " ")}`;
@@ -626,16 +629,34 @@ async function loadTargets() {
 
 // ============================================================== controls
 
-function togglePicker(open) {
+function togglePicker(open, focusItem = false) {
   const menu = $("picker-menu"), btn = $("picker-btn");
   const show = open ?? menu.hidden;
+  if (!show && menu.hidden) return;
+  const hadFocus = menu.contains(document.activeElement);
   menu.hidden = !show; btn.setAttribute("aria-expanded", String(show));
+  if (show && focusItem) (menu.querySelector(".picker-item.active") || menu.querySelector(".picker-item"))?.focus();
+  else if (!show && hadFocus) btn.focus();
+}
+
+// Listbox keys: arrows / Home / End move between targets, Enter or Space picks, Esc closes.
+function pickerKeys(e) {
+  const items = [...$("picker-menu").querySelectorAll(".picker-item")];
+  const i = items.indexOf(document.activeElement);
+  const go = (k) => { e.preventDefault(); items[(k + items.length) % items.length]?.focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i < 0 ? -1 : i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(-1);
+  else if (e.key === "Tab") togglePicker(false);
 }
 
 function setPlaying(on) {
   S.playing = on;
   const b = $("play-btn");
-  b.textContent = on ? "❚❚ Pause" : "▶ Play"; b.setAttribute("aria-pressed", String(on));
+  b.querySelector("use").setAttribute("href", on ? "#i-pause" : "#i-play");
+  b.querySelector(".btn-label").textContent = on ? "Pause" : "Play";
+  b.setAttribute("aria-pressed", String(on));
 }
 
 function setSpeed(v) {
@@ -661,11 +682,15 @@ function setPredictive(on) {
 
 function setTool(t) {
   S.tool = S.tool === t ? null : t;
-  document.querySelectorAll(".tool").forEach((b) => b.classList.toggle("armed", b.dataset.tool === S.tool));
+  document.querySelectorAll(".tool").forEach((b) => {
+    const on = b.dataset.tool === S.tool;
+    b.classList.toggle("armed", on); b.setAttribute("aria-pressed", String(on));
+  });
   els.map.classList.toggle("armed", !!S.tool);
   const hint = $("map-hint");
   hint.hidden = !S.tool;
-  hint.textContent = S.tool === "comet" ? "Click on the map to launch a comet (Esc to cancel)" : "Click on the map to drop an asteroid swarm (Esc to cancel)";
+  const verb = matchMedia("(pointer: coarse)").matches ? "Tap" : "Click";
+  hint.textContent = S.tool === "comet" ? `${verb} the map to launch a comet · Esc cancels` : `${verb} the map to drop an asteroid swarm · Esc cancels`;
 }
 
 function addDebrisAt(x, y, kind) {
@@ -698,14 +723,50 @@ function getMap3D() {
   return _map3d;
 }
 
+// Jamming heatmap: a 2D overlay above the 3D map. Each screen cell is projected onto the
+// ecliptic plane (Map3D.toWorld) and coloured by the debris jamming at that point, using the
+// same falloff as sim.attenuationDb: strength * (1 - s/r)^2 inside radius r.
+const HEAT_EVERY_MS = 250;
+function jamAt(x, y) {
+  let db = 0;
+  for (const d of S.snap?.debris || []) {
+    const s = Math.hypot(x - d.x, y - d.y);
+    if (s < d.r) db += d.strength * (1 - s / d.r) ** 2;
+  }
+  return db;
+}
+function drawJamHeatmap() {
+  if (!mapT?.toWorld) return;
+  drawHeatmap($("heat"), mapT, jamAt, 20);
+}
+function setHeatmap(on) {
+  S.heatmap = on;
+  const b = $("heatmap-btn"), heat = $("heat");
+  b.setAttribute("aria-pressed", String(on));
+  heat.hidden = !on;
+  if (on) drawJamHeatmap(); else heat.getContext("2d").clearRect(0, 0, heat.width, heat.height);
+}
+
+const DIVERSITY_MAX = 5;
+function renderDiversity(n) {
+  $("diversity").textContent = String(n);
+  const dots = $("diversity-dots");
+  if (dots.childElementCount !== DIVERSITY_MAX) dots.replaceChildren(...Array.from({ length: DIVERSITY_MAX }, () => document.createElement("i")));
+  [...dots.children].forEach((d, i) => d.classList.toggle("on", i < n));
+}
+
 function bindControls() {
-  $("picker-btn").addEventListener("click", (e) => { e.stopPropagation(); togglePicker(); });
+  $("picker-btn").addEventListener("click", (e) => { e.stopPropagation(); togglePicker(undefined, e.detail === 0); });
+  $("picker-btn").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); togglePicker(true, true); }
+  });
+  $("picker-menu").addEventListener("keydown", pickerKeys);
   document.addEventListener("click", (e) => { if (!$("picker").contains(e.target)) togglePicker(false); });
   $("play-btn").addEventListener("click", () => setPlaying(!S.playing));
   document.querySelectorAll("#speed-seg .seg-btn").forEach((b) => b.addEventListener("click", () => setSpeed(+b.dataset.speed)));
   document.querySelectorAll("#mode-seg .seg-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   $("predict-btn").addEventListener("click", () => setPredictive(!S.predictive));
-  $("heatmap-btn").addEventListener("click", () => { S.heatmap = !S.heatmap; $("heatmap-btn").classList.toggle("active", S.heatmap); });
+  $("heatmap-btn").addEventListener("click", () => setHeatmap(!S.heatmap));
   document.querySelectorAll(".tool").forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
   $("reset-btn").addEventListener("click", () => { setTool(null); resetAll(); });
   document.addEventListener("keydown", (e) => {
@@ -763,7 +824,7 @@ function demoTick() {
 
 // ============================================================== main loop
 
-let last = performance.now(), lcDrawAt = 0, crashed = false;
+let last = performance.now(), lcDrawAt = 0, heatDrawAt = 0, crashed = false;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
@@ -791,13 +852,15 @@ function frame(now) {
       renderHopThreats($("hop-threats"), S.best, S.links, nameOf);
       // Path diversity
       const div = realSim.pathDiversity ? realSim.pathDiversity(snap) : null;
-      if (div != null) $("diversity").textContent = `paths: ${"●".repeat(div)}${"○".repeat(Math.max(0, 5 - div))} ${div}`;
+      if (div != null) renderDiversity(div);
       // Transit windows (refresh each frame so countdown stays live)
       if (S.detBls?.best && S.snap && realSim.predictTransitWindows) {
         S.transitWindows = realSim.predictTransitWindows(S.snap, S.detBls.best.period, S.detBls.best.t0, 6, S.detBls.best.duration);
         renderTransitWindows($("transit-list"), $("transit-period"), S.transitWindows, S.detBls.best.period, S.snap.t);
       }
-      $("clock").textContent = `T+${(S.snap.t ?? 0).toFixed(2)} d · ${S.packets.length} in flight`;
+      $("clock").textContent = `T+${(S.snap.t ?? 0).toFixed(2)} d`;
+      $("inflight").textContent = String(S.packets.length);
+      if (S.heatmap && now - heatDrawAt > HEAT_EVERY_MS) { drawJamHeatmap(); heatDrawAt = now; }
     }
     if (S.lcDirty && now - lcDrawAt > 150) { drawLightCurve(); lcDrawAt = now; }
     if (S.logDirty) { renderLog(S.events); S.logDirty = false; }
