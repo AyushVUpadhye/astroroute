@@ -1,7 +1,7 @@
 # TASK — Abhijeet · detector (`web/js/detect.js`) · issue: Detector · branch `feat/detect`
 
 ## Handover status (Chirag is covering this while Abhijeet is away — read this first)
-- **DONE (12:45, Chirag, pushed to main):** `web/js/detect.js` — from-scratch BLS (log-uniform
+- **DONE (12:23, Chirag, pushed to main):** `web/js/detect.js` — from-scratch BLS (log-uniform
   period grid, 200 phase bins, 6 durations), `fold`, `vet` with 4 checks; `tests/detect.test.mjs`
   (synthetic planet / EB / noise / partial data + all real files). `npm test` → 10/10 green.
 - **Measured on the 9 real NASA files:** BLS recovered 9/9 published periods within 1%
