@@ -370,6 +370,29 @@ body::after {
 .transit-time { font-size: 11px; color: var(--text); flex: 1; }
 .transit-dur  { font-size: 10px; color: var(--muted); }
 
+/* ── Network Intelligence panel ─────────────────────────────────────────── */
+.intel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.intel-stat { background: rgba(5,7,13,0.55); border: 1px solid var(--border2); border-radius: 5px; padding: 7px 10px; }
+.intel-k    { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 2px; }
+.intel-v    { font-size: 18px; font-weight: 700; color: var(--accent); text-shadow: 0 0 10px rgba(127,209,255,0.3); }
+.intel-sub  { font-size: 9px; color: rgba(139,149,167,0.55); margin-top: 1px; }
+.intel-section-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin: 8px 0 3px; }
+.intel-relays, .intel-collisions { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.intel-relay-row { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+.intel-relay-bar { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.06); }
+.intel-relay-fill { height: 100%; border-radius: 2px; background: linear-gradient(to right, var(--accent2), var(--red)); }
+.intel-relay-name { width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.intel-relay-score { width: 28px; text-align: right; color: var(--muted); }
+.intel-relay-flag { font-size: 9px; color: var(--red); }
+.intel-collision-row { font-size: 10px; color: var(--muted); padding: 2px 0; }
+.intel-collision-row.merging { color: var(--red); }
+.intel-collision-row.close   { color: var(--amber); }
+.intel-fec { font-size: 11px; color: var(--green); padding: 4px 0; }
+.intel-fec.warn { color: var(--amber); }
+.intel-fec.bad  { color: var(--red); }
+.intel-relay-hint { font-size: 10px; color: var(--accent); line-height: 1.4; }
+.intel-muted { font-size: 10px; color: var(--muted); padding: 2px 0; }
+
 /* ── 3D node labels ──────────────────────────────────────────────────────── */
 .node-label {
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;

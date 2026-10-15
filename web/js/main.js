@@ -494,6 +494,101 @@ function drawLightCurve() {
   S.lcDirty = false;
 }
 
+// ── Network Intelligence panel ────────────────────────────────────────────────
+let _intelCache = { snapT: -999, result: null };
+let _intelWorking = false;
+
+function renderIntelPanel(snap) {
+  if (!snap) return;
+  if (_intelWorking) return;
+  // Recompute at most every 5 simulated days (keeps frame loop smooth)
+  if (Math.abs(snap.t - _intelCache.snapT) < 5 && _intelCache.result) {
+    _applyIntelUI(_intelCache.result); return;
+  }
+  _intelWorking = true;
+  setTimeout(() => {
+    const risk = realSim.monteCarloPartitionRisk(snap, 300, 24, 0.25);
+    const relayRank = realSim.relayVulnerabilityRanking(snap);
+    const collisions = realSim.debrisCollisionForecast(snap, 72, 2);
+    const optRelay = realSim.optimalRelayPosition(snap, 0.4, 2.6);
+    const div = realSim.pathDiversity(snap);
+    // FEC for best route min SNR
+    const minSnr = S.best ? Math.min(...(S.best.links ?? []).map(l => l.snrDb ?? 30)) : null;
+    const fec = minSnr != null ? realSim.adaptiveFecRate(minSnr) : null;
+    const result = { risk, relayRank, collisions, optRelay, div, fec, minSnr };
+    _intelCache = { snapT: snap.t, result };
+    _intelWorking = false;
+    _applyIntelUI(result);
+  }, 0);
+}
+
+function _applyIntelUI({ risk, relayRank, collisions, optRelay, div, fec, minSnr }) {
+  // Risk gauge
+  const riskPct = Math.round(risk.risk * 100);
+  const riskEl = $("intel-risk"), riskPill = $("intel-risk-pill"), riskSub = $("intel-risk-sub");
+  if (riskEl) riskEl.textContent = riskPct + "%";
+  if (riskSub) riskSub.textContent = `${risk.disconnectedTrials}/${risk.trials} trials disconnected`;
+  if (riskPill) {
+    riskPill.textContent = riskPct < 10 ? "LOW" : riskPct < 40 ? "MODERATE" : "HIGH";
+    riskPill.className = "pill " + (riskPct < 10 ? "up" : riskPct < 40 ? "rerouted" : "down");
+  }
+
+  // Diversity
+  const divEl = $("intel-div");
+  if (divEl) divEl.textContent = `${"●".repeat(div)}${"○".repeat(Math.max(0,5-div))} ${div}`;
+
+  // Relay ranking
+  const rl = $("intel-relays");
+  if (rl) {
+    const maxCrit = relayRank[0]?.criticality || 1;
+    rl.innerHTML = relayRank.slice(0,5).map(r => `
+      <li class="intel-relay-row">
+        <span class="intel-relay-name" title="${r.name}">${r.name}</span>
+        <span class="intel-relay-bar"><span class="intel-relay-fill" style="width:${Math.round(r.criticality/maxCrit*100)}%"></span></span>
+        <span class="intel-relay-score">${r.lostNodes}</span>
+        ${r.disconnectsEarth ? '<span class="intel-relay-flag">⚠ critical</span>' : ''}
+      </li>`).join('');
+  }
+
+  // FEC
+  const fecEl = $("intel-fec");
+  if (fecEl && fec) {
+    const cls = fec.effectiveFraction > 0.7 ? '' : fec.effectiveFraction > 0.4 ? ' warn' : ' bad';
+    fecEl.className = "intel-fec mono" + cls;
+    fecEl.textContent = `${fec.name} · rate ${fec.rate.toFixed(2)} · ${Math.round(fec.overheadFraction*100)}% overhead · +${fec.margindB} dB margin`;
+  } else if (fecEl) {
+    fecEl.textContent = "awaiting route";
+  }
+
+  // Collisions
+  const cl = $("intel-collisions");
+  if (cl) {
+    if (!collisions.length) {
+      cl.innerHTML = '<li class="intel-muted">No convergence detected</li>';
+    } else {
+      cl.innerHTML = collisions.map(c => {
+        const cls = c.merging ? "merging" : c.minDistAU < (c.combinedRadius * 1.2) ? "close" : "";
+        const icon = c.merging ? "⚠ MERGE" : "→";
+        return `<li class="intel-collision-row ${cls}">${icon} ${c.idA} + ${c.idB} · ${c.minDistAU} AU in ${Math.round(c.inHours)}h · strength ${c.combinedStrength} dB</li>`;
+      }).join('');
+    }
+  }
+
+  // Optimal relay
+  const orEl = $("intel-relay-hint");
+  if (orEl) {
+    if (optRelay.candidates.length) {
+      const best = optRelay.candidates[0];
+      const gain = best.diversity - optRelay.baseDiversity;
+      orEl.textContent = gain > 0
+        ? `(${best.x.toFixed(1)}, ${best.y.toFixed(1)}) AU → +${gain} path${gain>1?'s':''} (div ${best.diversity})`
+        : `No improvement over current div ${optRelay.baseDiversity}`;
+    } else {
+      orEl.textContent = "—";
+    }
+  }
+}
+
 function drawDetection() {
   const b = S.detBls, pub = S.target?.publishedPeriod;
   if (b?.best && b.periods?.length) {
@@ -798,6 +893,7 @@ function frame(now) {
         renderTransitWindows($("transit-list"), $("transit-period"), S.transitWindows, S.detBls.best.period, S.snap.t);
       }
       $("clock").textContent = `T+${(S.snap.t ?? 0).toFixed(2)} d · ${S.packets.length} in flight`;
+      renderIntelPanel(S.snap);
     }
     if (S.lcDirty && now - lcDrawAt > 150) { drawLightCurve(); lcDrawAt = now; }
     if (S.logDirty) { renderLog(S.events); S.logDirty = false; }

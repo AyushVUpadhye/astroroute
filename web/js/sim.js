@@ -471,3 +471,138 @@ export function computeSwarmImpact(snap, debrisId, maxRangeAU = 2.6) {
   }
   return { debrisId, kind: d.kind, blocked, jammed, clear, maxAttenDb: +maxAttenDb.toFixed(2) };
 }
+
+// ── NEW: Advanced network intelligence features ───────────────────────────────
+
+// Monte Carlo partition risk: perturb each debris velocity by ±perturbFrac and simulate
+// nTrials trajectories forward forecastHours. Returns fraction [0,1] of trials where
+// earth↔obs path is completely disconnected at any point during the forecast window.
+export function monteCarloPartitionRisk(snap, nTrials = 300, forecastHours = 24, perturbFrac = 0.25) {
+  const BLOCK_DB = 24, MAX_RANGE = 2.6;
+  const rng = mkRng(42);
+  const nodes = snap.nodes;
+  const obsId   = nodes.find(n => n.kind === "observatory")?.id;
+  const earthId = nodes.find(n => n.kind === "earth")?.id;
+  if (!obsId || !earthId || snap.debris.length === 0)
+    return { risk: 0, trials: nTrials, disconnectedTrials: 0, forecastHours };
+
+  const STEPS = 8;
+  const dtDays = (forecastHours / 24) / STEPS;
+  let disconnectedTrials = 0;
+
+  for (let trial = 0; trial < nTrials; trial++) {
+    const trialDebris = snap.debris.map(d => ({
+      ...d,
+      vx: d.vx * (1 + (rng() * 2 - 1) * perturbFrac),
+      vy: d.vy * (1 + (rng() * 2 - 1) * perturbFrac),
+    }));
+    let everDisconnected = false;
+    for (let s = 1; s <= STEPS && !everDisconnected; s++) {
+      const projected = trialDebris.map(d => ({
+        ...d, x: d.x + d.vx * dtDays * s, y: d.y + d.vy * dtDays * s,
+      }));
+      const projSnap = { nodes, debris: projected };
+      const adj = new Map(nodes.map(n => [n.id, []]));
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) > MAX_RANGE) continue;
+          if (attenuationDb(projSnap, nodes[i], nodes[j]) < BLOCK_DB) {
+            adj.get(nodes[i].id).push(nodes[j].id);
+            adj.get(nodes[j].id).push(nodes[i].id);
+          }
+        }
+      }
+      const visited = new Set([obsId]);
+      const q = [obsId];
+      for (let qi = 0; qi < q.length; qi++)
+        for (const nb of (adj.get(q[qi]) ?? []))
+          if (!visited.has(nb)) { visited.add(nb); q.push(nb); }
+      if (!visited.has(earthId)) everDisconnected = true;
+    }
+    if (everDisconnected) disconnectedTrials++;
+  }
+  return { risk: disconnectedTrials / nTrials, trials: nTrials, disconnectedTrials, forecastHours };
+}
+
+// Optimal new relay position: grid-search and find (x,y) that maximises path diversity
+// when a relay is inserted there. Returns baseDiversity + top-3 candidates.
+export function optimalRelayPosition(snap, gridStep = 0.4, maxRangeAU = 2.6) {
+  const candidates = [];
+  const bounds = 4.6;
+  for (let gx = -bounds; gx <= bounds; gx += gridStep) {
+    for (let gy = -bounds; gy <= bounds; gy += gridStep) {
+      const r = Math.hypot(gx, gy);
+      if (r < 1.2 || r > 4.2) continue;
+      if (snap.nodes.some(n => Math.hypot(n.x - gx, n.y - gy) < 0.3)) continue;
+      const augSnap = {
+        ...snap,
+        nodes: [...snap.nodes, { id: '__cand__', name: 'New Relay', kind: 'relay', x: gx, y: gy }],
+      };
+      candidates.push({ x: gx, y: gy, diversity: pathDiversity(augSnap, maxRangeAU) });
+    }
+  }
+  const baseDiversity = pathDiversity(snap, maxRangeAU);
+  candidates.sort((a, b) => b.diversity - a.diversity);
+  const top = [];
+  for (const c of candidates) {
+    if (top.length >= 3) break;
+    if (top.every(t => Math.hypot(t.x - c.x, t.y - c.y) > gridStep * 1.5)) top.push(c);
+  }
+  return { baseDiversity, candidates: top };
+}
+
+// Debris collision forecast: find pairs at risk of merging over forecastHours.
+// A merge creates a superswarm with combined attenuation — critical routing threat.
+export function debrisCollisionForecast(snap, forecastHours = 72, dtHours = 2) {
+  const debris = snap.debris;
+  if (debris.length < 2) return [];
+  const dtDays = dtHours / 24;
+  const steps = Math.ceil(forecastHours / dtHours);
+  const collisions = [];
+  for (let i = 0; i < debris.length; i++) {
+    for (let j = i + 1; j < debris.length; j++) {
+      const a = debris[i], b = debris[j];
+      const mergeThreshold = a.r + b.r;
+      let minDist = Infinity, minHours = 0;
+      for (let s = 0; s <= steps; s++) {
+        const dist = Math.hypot(
+          (a.x + a.vx * dtDays * s) - (b.x + b.vx * dtDays * s),
+          (a.y + a.vy * dtDays * s) - (b.y + b.vy * dtDays * s)
+        );
+        if (dist < minDist) { minDist = dist; minHours = s * dtHours; }
+      }
+      if (minDist < mergeThreshold * 1.5) {
+        collisions.push({
+          idA: a.id, idB: b.id, kindA: a.kind, kindB: b.kind,
+          minDistAU: +minDist.toFixed(3), inHours: minHours,
+          merging: minDist < mergeThreshold,
+          combinedStrength: a.strength + b.strength,
+          combinedRadius: +mergeThreshold.toFixed(3),
+        });
+      }
+    }
+  }
+  return collisions.sort((a, b) => a.minDistAU - b.minDistAU);
+}
+
+// Adaptive FEC rate: given link SNR, return optimal coding rate and overhead.
+// Models DVB-S2 / CCSDS deep-space coding families.
+export function adaptiveFecRate(snrDb) {
+  const MODES = [
+    [38, 9, 10, 'LDPC 9/10'],
+    [32, 8, 9,  'LDPC 8/9'],
+    [26, 5, 6,  'Turbo 5/6'],
+    [20, 3, 4,  'LDPC 3/4'],
+    [14, 2, 3,  'Turbo 2/3'],
+    [10, 1, 2,  'LDPC 1/2'],
+    [ 6, 1, 3,  'LDPC 1/3'],
+    [ 0, 1, 6,  'Repeat 1/6'],
+  ];
+  const mode = MODES.find(([minSnr]) => snrDb >= minSnr) ?? MODES[MODES.length - 1];
+  const [minSnrDb, num, den, name] = mode;
+  return {
+    rate: num / den, name, effectiveFraction: num / den,
+    overheadFraction: +(1 - num / den).toFixed(3),
+    minSnrDb, margindB: +(snrDb - minSnrDb).toFixed(1),
+  };
+}

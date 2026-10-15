@@ -118,6 +118,30 @@
         <ul class="checks" id="checks"></ul>
       </section>
 
+      <section class="panel card" id="intel-panel">
+        <div class="panel-head"><h2>Network Intelligence</h2><span class="pill" id="intel-risk-pill" style="font-size:9px">COMPUTING…</span></div>
+        <div class="intel-grid">
+          <div class="intel-stat">
+            <div class="intel-k">24h Disconnect Risk</div>
+            <div class="intel-v mono" id="intel-risk">—</div>
+            <div class="intel-sub" id="intel-risk-sub">Monte Carlo · 300 trials</div>
+          </div>
+          <div class="intel-stat">
+            <div class="intel-k">Path Diversity</div>
+            <div class="intel-v mono" id="intel-div">—</div>
+            <div class="intel-sub">node-disjoint routes</div>
+          </div>
+        </div>
+        <div class="intel-section-label">Relay Criticality</div>
+        <ul class="intel-relays" id="intel-relays"></ul>
+        <div class="intel-section-label">FEC Coding · Best Route</div>
+        <div class="intel-fec mono" id="intel-fec">—</div>
+        <div class="intel-section-label">Debris Collision Forecast</div>
+        <ul class="intel-collisions" id="intel-collisions"><li class="intel-muted">No debris loaded</li></ul>
+        <div class="intel-section-label">Optimal New Relay</div>
+        <div class="intel-relay-hint mono" id="intel-relay-hint">—</div>
+      </section>
+
       <section class="panel card" id="transit-panel">
         <div class="panel-head"><h2>Transit Windows</h2><span class="muted mono" id="transit-period">—</span></div>
         <div id="transit-list" class="transit-list"><div class="muted" style="padding:6px 0;font-size:11px">Waiting for planet detection…</div></div>
