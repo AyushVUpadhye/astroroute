@@ -1,5 +1,26 @@
 # TASK — Abhijeet · detector (`web/js/detect.js`) · issue: Detector · branch `feat/detect`
 
+## Handover status (Chirag is covering this while Abhijeet is away — read this first)
+- **DONE (12:45, Chirag, pushed to main):** `web/js/detect.js` — from-scratch BLS (log-uniform
+  period grid, 200 phase bins, 6 durations), `fold`, `vet` with 4 checks; `tests/detect.test.mjs`
+  (synthetic planet / EB / noise / partial data + all real files). `npm test` → 10/10 green.
+- **Measured on the 9 real NASA files:** BLS recovered 9/9 published periods within 1%
+  (0.1–0.55 s each). Verdicts: 6/6 confirmed planets → PLANET CANDIDATE; NASA false positives:
+  KIC 8801343 caught (secondary eclipse 6%, 9.2σ), **KIC 6756669 missed** (passes all checks);
+  TOI-1163.01 → PLANET CANDIDATE.
+- **Threshold change, with reason:** odd/even fails only if > 3σ AND > 20% different; secondary
+  only if > 5σ AND > 5% of the primary. Reason: WASP-18 b (a confirmed planet) showed an 11%,
+  26σ odd/even difference from systematics in very clean TESS data.
+
+### Left for Abhijeet (pick up from here)
+1. **Catch KIC 6756669** without breaking the 6 planets: try a V-shape check (mean depth in
+   the outer half of the box vs the central half: measured 0.67 for KIC 6756669 vs 0.72–0.89
+   for planets — too close alone) or a size check (needs star radius, not in our files yet).
+   Run `npm test` after every change; the real-data table prints at the end.
+2. Add a "Shape" check to `vet()` only if it separates them; otherwise write the miss into
+   README "limitations" (tell Bhumika).
+3. Be ready to explain BLS + the checks in Q&A (see comments at the top of detect.js).
+
 ## For you
 Debugger Gauntlet (no AI): when called — commit, push, merge, tell Chirag, go.
 Clone, open Claude Code in the repo, type: *"Read docs/tasks/TASK_ABHIJEET.md and do 'For the AI'."*
@@ -30,13 +51,13 @@ Implement, exactly as in docs/PLAN.md:
   "LIKELY FALSE POSITIVE"; 1 fails -> "NO CONVINCING SIGNAL"; else "PLANET CANDIDATE".
 - Works on PARTIAL data (the UI calls it as packets arrive), never throws on short arrays.
 
-tests/detect.test.mjs (node:test, run with `node --test tests/`): synthetic light curves:
+tests/detect.test.mjs (node:test, run with `node --test "tests/*.test.mjs"`): synthetic light curves:
 (a) box transit P=2.5 d depth 0.01 + noise 0.002 -> period within 1% and PLANET CANDIDATE;
 (b) eclipsing binary: alternating depths 0.02/0.01 at P=1.8 d + secondary -> LIKELY FALSE
 POSITIVE; (c) pure noise -> NO CONVINCING SIGNAL; (d) 1.2 days of (a) -> NEED MORE DATA;
 (e) timing: 6000 points < 1.5 s. Use a seeded random generator so tests are deterministic.
 
-Done when: node --test tests/ is green. PR "Detector: BLS + checks (closes #2)", squash-merge.
+Done when: node --test "tests/*.test.mjs" is green. PR "Detector: BLS + checks (closes #2)", squash-merge.
 Then: when web/data/*.json exists on main, run bls on each file and print found vs
 publishedPeriod; fix real bugs in a new small PR (say exactly what changed and why).
 ```

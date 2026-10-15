@@ -29,5 +29,5 @@ tests/router.test.mjs, tools/fetch_data.py, web/data/ ONLY.
    with brute-force enumeration of all simple paths -> 0 mismatches (print the count);
    alternate path never equals best; independent alternate shares no intermediate node;
    blocked links never used; returns null when disconnected; timing for 30 nodes.
-Done when: node --test tests/ green. PR "Router: links + best + alternate (closes #1)", merge.
+Done when: node --test "tests/*.test.mjs" green. PR "Router: links + best + alternate (closes #1)", merge.
 ```

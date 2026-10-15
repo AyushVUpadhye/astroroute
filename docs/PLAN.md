@@ -100,7 +100,7 @@ Clone `https://github.com/thegoodengineers/astroroute`, branch `feat/<area>`, sm
 "<issue> (closes #N)", **squash-merge yourself** when your "Done when" passes. `git pull origin main`
 before each PR. Before a Gauntlet: commit, push, merge, tell Chirag. Run locally:
 `python -m http.server 8000 -d web` → http://localhost:8000 (ES modules need http, not file://).
-Tests: `node --test tests/`.
+Tests: `node --test "tests/*.test.mjs"` (or `npm test`).
 
 ## Submissions
 Drive: UI/UX ZIP+MP4 (Ayush, in Gauntlet) · Music MP4 (Bhumika, in Gauntlet) · source ZIP + demo MP4

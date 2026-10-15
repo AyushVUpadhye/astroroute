@@ -45,6 +45,6 @@ lightkurve for download only), "no pre-built models" statement.
 docs/SLIDES.md: 4 slides - hook (signal lost behind a swarm), live demo, how it works,
 proof + limits + team.
 
-Done when: node --test tests/ green for sim; PR "Sim: world + swarm + jamming (closes #4)",
+Done when: node --test "tests/*.test.mjs" green for sim; PR "Sim: world + swarm + jamming (closes #4)",
 squash-merge. Then validate.mjs + README in a second PR once router/detect are on main.
 ```
