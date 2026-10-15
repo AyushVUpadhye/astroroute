@@ -11,6 +11,8 @@ Numbers below are printed by `npm test` (measured 15 Oct). Never quote a number 
 | Forced reroutes (path broke while in use), 120 days | **5 → 0** default, **6 → 0** storm, **5 → 0** comet-rain with predictive routing (1-day lookahead) |
 | Data volume, max-throughput vs fastest mode, 120 days | **+22.4%** (default), **+31.2%** (storm), for +1.3 / +1.6 min latency |
 | Widest path vs brute force | 1000 cases, **0 mismatches** |
+| Data needed to confirm a planet (stream in time order) | all 6 confirmed after **5–30%** of the stream, median **15%** |
+| Random packet loss (6 planets × 3 seeds) | planet still found: **18/18** at 50% loss, **17/18** at 70%, **14/18** at 90% |
 | Kepler-6 streamed through the storm | 2093/2093 points arrived, period 3.2361 d (NASA 3.2347 d) |
 | Our BLS on 9 real NASA light curves | **9/9 periods within 1%**, 0.1–0.6 s each |
 | Verdicts | 6/6 confirmed planets → PLANET CANDIDATE; NASA false positives: **2/2 caught** (KIC 8801343 by size + secondary, KIC 6756669 by brightness: albedo 3.4) |
@@ -34,6 +36,8 @@ Numbers below are printed by `npm test` (measured 15 Oct). Never quote a number 
   this mode picks the path whose weakest link is strongest (widest path, Pollack 1960). It moves
   22–31% more data than the fastest path for ~1.5 min more delay — the trade-off is the user's choice.
   Absolute Gb depend on our assumed 1 MHz bandwidth, so quote the percentages only.
+- **What if data is lost anyway?** The detector needs little: a median 15% of the stream confirms the
+  planet, and with 70% of packets randomly destroyed it still finds it in 17 of 18 runs.
 - **Why "dynamic"?** Positions and debris move every step; links and both paths are recomputed
   every step (0.2 ms), and every change of best path is logged as a reroute event.
 
