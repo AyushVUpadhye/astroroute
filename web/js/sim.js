@@ -164,3 +164,83 @@ export function addDebris(world, x, y, kind) {
   const n = kind === "comet" ? 15 : 40;
   world.debris.push(makeDebrisCluster(id, x, y, kind, r, strength, vx, vy, world._rand, n));
 }
+
+// ── Advanced features ────────────────────────────────────────────────────────
+
+// Look ahead in time to predict whether the link A→B will be jammed within
+// horizonHours. Simulates debris positions forward in dtHours increments.
+// Returns { willJam, inHours, maxAttenDb, peakHours } — pure, does not mutate world.
+export function predictJam(snap, nodeA, nodeB, horizonHours = 24, dtHours = 1) {
+  const na = typeof nodeA === "string" ? snap.nodes.find(n => n.id === nodeA) : nodeA;
+  const nb = typeof nodeB === "string" ? snap.nodes.find(n => n.id === nodeB) : nodeB;
+  if (!na || !nb) return { willJam: false, inHours: Infinity, maxAttenDb: 0, peakHours: Infinity };
+
+  const BLOCK_THRESHOLD = 24; // dB — same logic as router thresholdDb sanity margin
+  const dtDays = dtHours / 24;
+  const steps = Math.ceil(horizonHours / dtHours);
+
+  // Work on copies of debris positions so we don't mutate.
+  const debrisCopies = snap.debris.map(d => ({ ...d }));
+
+  let maxAttenDb = 0, firstJamHours = Infinity, peakHours = 0;
+
+  for (let i = 0; i <= steps; i++) {
+    const elapsedHours = i * dtHours;
+    let totalDb = 0;
+    for (const d of debrisCopies) {
+      const cx = d.x + d.vx * dtDays * i;
+      const cy = d.y + d.vy * dtDays * i;
+      const s = pointSegDist(cx, cy, na.x, na.y, nb.x, nb.y);
+      if (s < d.r) totalDb += d.strength * Math.pow(1 - s / d.r, 2);
+    }
+    if (totalDb > maxAttenDb) { maxAttenDb = totalDb; peakHours = elapsedHours; }
+    if (totalDb >= BLOCK_THRESHOLD && firstJamHours === Infinity) firstJamHours = elapsedHours;
+  }
+
+  return { willJam: firstJamHours < Infinity, inHours: firstJamHours, maxAttenDb, peakHours };
+}
+
+// Check whether any debris currently threatens nodes along a path (within marginAU of
+// any segment). Returns { threatened, segments: [{a, b, debrisId, distAU}] }.
+export function debrisIntersectsPath(snap, nodeIds, marginAU = 0) {
+  const nodes = nodeIds.map(id =>
+    typeof id === "string" ? snap.nodes.find(n => n.id === id) : id
+  ).filter(Boolean);
+
+  const segments = [];
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const a = nodes[i], b = nodes[i + 1];
+    for (const d of snap.debris) {
+      const s = pointSegDist(d.x, d.y, a.x, a.y, b.x, b.y);
+      const effective = d.r + marginAU;
+      if (s < effective) {
+        segments.push({ a: a.id, b: b.id, debrisId: d.id, distAU: s, debrisKind: d.kind });
+      }
+    }
+  }
+  return { threatened: segments.length > 0, segments };
+}
+
+// Return the node from snap closest to the given (x, y) coordinate.
+// Useful for mapping a UI click to the nearest network node.
+export function nearestNode(snap, x, y) {
+  let best = null, bestDist = Infinity;
+  for (const n of snap.nodes) {
+    const d = Math.hypot(n.x - x, n.y - y);
+    if (d < bestDist) { bestDist = d; best = n; }
+  }
+  return best;
+}
+
+// Return the attenuation dB for every link that is currently above zero, sorted
+// descending — convenience for the UI threat overlay.
+export function linkThreatMap(snap) {
+  const pairs = [];
+  for (let i = 0; i < snap.nodes.length; i++) {
+    for (let j = i + 1; j < snap.nodes.length; j++) {
+      const db = attenuationDb(snap, snap.nodes[i], snap.nodes[j]);
+      if (db > 0) pairs.push({ a: snap.nodes[i].id, b: snap.nodes[j].id, attenDb: db });
+    }
+  }
+  return pairs.sort((x, y) => y.attenDb - x.attenDb);
+}
