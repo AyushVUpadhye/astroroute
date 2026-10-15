@@ -1,5 +1,15 @@
 # TASK — Bhumika · space simulation + proof + pitch · issue: Sim · branch `feat/sim`
 
+## Update from Chirag (12:28) — your load is lighter now
+- **Skip tools/validate.mjs.** The wow numbers come from `npm test` (Chirag's
+  `tests/integration.test.mjs` prints "Delivered with rerouting X% vs fixed route Y%", the
+  detector test prints "BLS recovered A/B NASA periods"). Copy those lines into README/slides.
+- Already measured on main: router 0 mismatches vs brute force (2000 cases), 0.2 ms per reroute;
+  BLS 9/9 NASA periods within 1%; 6/6 confirmed planets → PLANET CANDIDATE; 1/2 NASA false
+  positives caught (KIC 6756669 missed — put it in "limitations").
+- A backup sim.js is being built on branch `fallback/sim`. Push yours to main as soon as
+  `npm test` is green — if yours lands first and passes the integration test, yours is used.
+
 ## For you
 AI Music Gauntlet: MUSIC_KIT.txt (in the ffmpeg command change "Theme Exoplanet Hunter" to
 "Theme Space"). When called — commit, push, merge, tell Chirag, go. Clone, open Claude Code in
