@@ -3,7 +3,7 @@ import * as router from "./router.js";
 import * as realSim from "./sim.js";
 import * as realDetect from "./detect.js";
 import { COLORS, drawMap, drawChart, renderRoute, renderLog, renderProgress, renderVerdict,
-  drawHeatmap, renderHopThreats, renderTransitWindows } from "./ui.js";
+  drawHeatmap, renderHopThreats, renderTransitWindows, latestOnly } from "./ui.js";
 
 // sim.js and detect.js are implemented on main, so the real modules run. The small mocks below
 // follow docs/PLAN.md "Interfaces" exactly; flip this to true to run the UI without them.
@@ -564,21 +564,36 @@ function resetAll() {
   if (S.target) log(`Observing ${S.target.target} (${S.target.mission}); ${S.lc.time.length.toLocaleString()} points in ${S.nChunks} packets`, "info");
 }
 
+// Every place that names the current target; only called once that target's data is loaded.
+function showTarget(meta) {
+  $("picker-label").textContent = meta ? meta.target : "—";
+  $("det-target").textContent = meta ? `${meta.target} · ${meta.mission}` : "—";
+  document.querySelectorAll(".picker-item").forEach((b) => b.classList.toggle("active", b.dataset.slug === meta?.slug));
+}
+
+// Picking targets quickly overlaps fetches; a slower, older response must not replace the
+// newer pick (it used to: label "TrES-2" while Kepler-17's light curve was being analysed).
+const targetLoads = latestOnly();
+
 async function loadTarget(slug) {
   const meta = S.targets.find((t) => t.slug === slug);
   if (!meta) return;
-  $("picker-label").textContent = meta.target;
-  $("det-target").textContent = `${meta.target} · ${meta.mission}`;
+  const isCurrent = targetLoads();
+  $("picker-label").textContent = `Loading ${meta.target}…`;
+  let lc;
   try {
     const res = await fetch(`data/${slug}.json`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    S.lc = await res.json();
-    S.target = meta;
+    lc = await res.json();
   } catch (e) {
+    if (!isCurrent()) return;
     log(`Could not load data/${slug}.json: ${e.message}`, "bad");
+    showTarget(S.target); // keep naming the target whose data is still loaded
     return;
   }
-  document.querySelectorAll(".picker-item").forEach((b) => b.classList.toggle("active", b.dataset.slug === slug));
+  if (!isCurrent()) return; // superseded by a newer pick
+  S.lc = lc; S.target = meta;
+  showTarget(meta);
   resetAll();
 }
 
