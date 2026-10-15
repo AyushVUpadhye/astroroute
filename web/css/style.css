@@ -395,3 +395,37 @@ body::after {
   .switch { padding: 0 8px 0 5px; }
   .btn { padding: 0 8px; }
 }
+
+/* ── Light mode (toggle "Light" in the top bar, or ?light=1). The map stays dark: it is space. ── */
+body.light {
+  --bg:      #F4F6FA;
+  --bg1:     #FFFFFF;
+  --panel:   rgba(255, 255, 255, 0.96);
+  --border:  rgba(20, 40, 80, 0.18);
+  --border2: rgba(20, 40, 80, 0.08);
+  --accent:  #0B6FB8;
+  --accent2: #0A5A96;
+  --purple:  #6B4FC8;
+  --green:   #1E8E54;
+  --amber:   #A86200;
+  --red:     #C8323A;
+  --text:    #111827;
+  --muted:   #5B6475;
+  --glow-c:  rgba(11, 111, 184, 0.08);
+  --glow-r:  rgba(200, 50, 58, 0.08);
+}
+body.light::after { display: none; }
+body.light .topbar { background: rgba(255, 255, 255, 0.97); box-shadow: 0 1px 12px rgba(20, 40, 80, 0.10); }
+body.light .picker-menu { background: rgba(255, 255, 255, 0.98); box-shadow: 0 8px 24px rgba(20, 40, 80, 0.18); }
+/* Charts are drawn on a dark plot (canvas colours) - keep them solid dark screens inside the light panel. */
+body.light .chart { background: #0B1020; border-color: rgba(20, 40, 80, 0.25); }
+body.light .verdict { background: #FFFFFF; }
+/* Sidebar tabs */
+.side-tabs { display: flex; gap: 4px; padding: 6px; border: 1px solid var(--border2); border-radius: 8px; background: var(--panel); }
+.side-tab { flex: 1; padding: 7px 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
+.side-tab:hover { color: var(--text); }
+.side-tab[aria-selected="true"] { color: var(--accent); border-color: var(--border); background: var(--glow-c); }
+.side-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+aside.side > section[hidden] { display: none !important; }
+body.light .transit-row { background: #FFFFFF; border-color: rgba(20, 40, 80, 0.15); color: var(--text); }
+body.light .transit-row.transit-soon { background: rgba(168, 98, 0, 0.06); border-color: rgba(168, 98, 0, 0.4); }
