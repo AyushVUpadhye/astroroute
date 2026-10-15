@@ -13,7 +13,7 @@ Numbers below are printed by `npm test` (measured 15 Oct). Never quote a number 
 | Widest path vs brute force | 1000 cases, **0 mismatches** |
 | Kepler-6 streamed through the storm | 2093/2093 points arrived, period 3.2361 d (NASA 3.2347 d) |
 | Our BLS on 9 real NASA light curves | **9/9 periods within 1%**, 0.1–0.6 s each |
-| Verdicts | 6/6 confirmed planets → PLANET CANDIDATE; NASA false positives: 1/2 caught |
+| Verdicts | 6/6 confirmed planets → PLANET CANDIDATE; NASA false positives: **2/2 caught** (KIC 8801343 by size + secondary, KIC 6756669 by brightness: albedo 3.4) |
 | Planet radius vs NASA's published radius | Kepler-6 14.6 vs 14.62, HAT-P-7 17.2 vs 16.93, WASP-18 13.5 vs 13.90, Kepler-17 14.1 vs 14.68, WASP-43 9.7 vs 10.42 Earth radii (TrES-2 12.6 vs 15.24 — grazing transit) |
 
 ## Routing (Chirag)
@@ -51,11 +51,20 @@ Numbers below are printed by `npm test` (measured 15 Oct). Never quote a number 
 - **Planet vs false positive?** SNR ≥ 7.1 (Kepler's threshold), ≥ 2 real transits, odd vs even
   dips match, no strong secondary eclipse halfway between transits, and size: radius = star radius ×
   √depth (NASA star radius) must stay under ~2 Jupiter radii (22.4 Earth radii). KIC 8801343 comes
-  out at 33.1 Earth radii → a star.
+  out at 33.1 Earth radii → a star. Last, brightness: a planet can only reflect light, so a dip
+  at phase 0.5 deeper than (Rp/a)² would need an albedo above 1 — the companion glows, so it's a
+  star (the Kepler Robovetter's albedo test; a/R* from Kepler's third law with the NASA star radius).
 - **Why not machine learning?** The rules ban pre-built models, and we want every verdict to be
   explainable: each check prints the reason in plain English.
-- **Weak spot?** We missed one NASA false positive (KIC 6756669) — it passes all four checks in
-  this data. Next: transit-shape and stellar-size checks.
+- **How did you catch KIC 6756669?** It looks exactly like a planet: flat-bottomed dip, planet
+  size (14.4 Earth radii), odd = even, and its secondary eclipse is only 1.4% of the transit (under
+  our 5% rule — HAT-P-7 b, a real planet, has 1.3%). But that secondary is 368 ppm deep while a
+  planet that size, 16 star radii from its star, could reflect at most ~110 ppm → albedo 3.4,
+  impossible for a planet. WASP-18 b's real secondary gives albedo 0.40 (hot planet), so it passes.
+  We tried a V-shape check first; it does not separate them (0.67 vs 0.57–0.89 for planets).
+- **Weak spot?** Early in the stream (2–3 transits) a planet can briefly show LIKELY FALSE
+  POSITIVE — e.g. two of WASP-18's first TESS transits are distorted by systematics; it settles
+  once more transits arrive. Odd/even errors include transit-to-transit scatter to limit this.
 - **Thresholds?** Tuned on real data: a confirmed planet (WASP-18 b) showed a small but
   "significant" odd/even difference from systematics, so a check fails only when the effect is
   both significant and large.

@@ -27,7 +27,21 @@
   14.1/14.68, WASP-43 9.7/10.42, TrES-2 12.6/15.24 (grazing); KIC 8801343 33.1 -> flagged as a star.
   KIC 6756669 is still missed: NASA radius 0.806 R_sun gives 14.4 Earth radii, so size can't catch it.
 
-### Left for Abhijeet (pick up from here)
+- **DONE (Abhijeet): KIC 6756669 caught - new "Brightness" check.** V-shape does NOT separate it
+  (inner/outer depth ratio 0.67 vs 0.57-0.89 for the planets; its folded dip is flat-bottomed), so
+  no Shape check was added. What does: its secondary eclipse (7σ, phase 0.5) is only 1.4% of the
+  transit - under the 5% rule, and HAT-P-7 b (a planet) has 1.3% - but it is 368 ppm deep, while a
+  14 Earth-radius body at a/R* = 16 could reflect at most ~110 ppm: geometric albedo 3.4 > 1, so it
+  shines by itself (Kepler Robovetter albedo test). Fails only if the secondary is > 5σ AND albedo
+  > 1; WASP-18 b's real secondary gives 0.40 and passes. Result: 6/6 planets PLANET CANDIDATE,
+  **2/2 NASA false positives caught**. Streamed (10%..100% of each file) it never fires on a planet.
+- **DONE: odd/even robust to systematics.** WASP-18's 2nd and 4th TESS transits are distorted
+  (half depth, ramped); both odd, so early in the stream WASP-18 b read as a binary until 40% of
+  the data. The odd/even error now also uses transit-to-transit scatter within each parity -> correct
+  from 30%; TOI-1163.01 from 60% (was 90%). Binaries still fail (their odd dips are consistently
+  different). Tests: real-data verdicts now asserted + synthetic "too bright" binary. 52/52 green.
+
+### Original list for Abhijeet (all done)
 1. **Catch KIC 6756669** without breaking the 6 planets: try a V-shape check (mean depth in
    the outer half of the box vs the central half: measured 0.67 for KIC 6756669 vs 0.72–0.89
    for planets — too close alone). The size check is done and does not catch it (see above).
