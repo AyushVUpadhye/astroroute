@@ -1,5 +1,17 @@
 # TASK — Ayush · mission-control UI · issue: UI · branch `feat/ui`
 
+## Update from Chirag (12:37) — real modules are on main, plus one new feature
+- `sim.js` (Bhumika), `router.js`, `detect.js` are REAL and tested on main — no mocks needed,
+  `git pull origin main` and import them.
+- NEW: **predictive routing.** Add a "Predictive" toggle to the route card, ON by default. When on:
+  `bestPath(buildLinksAhead(prevSnap, snap, sim.attenuationDb, dtDays, {aheadDays: 1}), obs, earth)
+  || bestPath(buildLinks(snap, sim.attenuationDb), obs, earth)` (same links for alternatePath).
+  Keep last frame's snapshot as `prevSnap`. Draw links with `forecastBlocked: true` as a thin
+  dotted red line ("will be jammed"). In the event log mark each reroute "proactive" (old path
+  still up) or "forced" (old path already jammed). Measured: forced reroutes 5 → 0 with it on.
+- A backup UI is being built on branch `fallback/ui` in case of time trouble — push yours to main
+  as soon as it runs; yours wins if it works.
+
 ## For you
 UI/UX Gauntlet: use UIUX_PROMPT.txt in an EMPTY folder (not this repo). When called — commit,
 push, merge, tell Chirag, go. Clone, open Claude Code in the repo, type:

@@ -8,6 +8,7 @@ Numbers below are printed by `npm test` (measured 15 Oct). Never quote a number 
 | Reroute time (30 nodes: links + best + alternate) | **~0.2 ms** per step |
 | Packets delivered, default swarm, 120 days | **100% with rerouting vs 33.1% fixed route** (10 reroutes) |
 | Packets delivered, 3-swarm storm, 120 days | **100% vs 20.9%** (11 reroutes) |
+| Forced reroutes (path broke while in use), 120 days | **5 → 0** default, **6 → 0** storm, **5 → 0** comet-rain with predictive routing (1-day lookahead) |
 | Kepler-6 streamed through the storm | 2093/2093 points arrived, period 3.2361 d (NASA 3.2347 d) |
 | Our BLS on 9 real NASA light curves | **9/9 periods within 1%**, 0.1–0.6 s each |
 | Verdicts | 6/6 confirmed planets → PLANET CANDIDATE; NASA false positives: 1/2 caught |
@@ -23,6 +24,9 @@ Numbers below are printed by `npm test` (measured 15 Oct). Never quote a number 
   1000 random networks × 2 modes → 0 mismatches.
 - **What happens when there is no path at all?** Packets wait at the observatory (buffered) and
   go out when a path reopens — nothing is lost. The UI shows "LINK DOWN – buffering".
+- **Predictive routing?** We extrapolate every relay and debris cloud one day ahead from the last two
+  positions; a link that *will* be jammed is avoided now, so we switch before it fails. Measured:
+  forced reroutes 5 → 0 (default), 6 → 0 (storm), 5 → 0 (comet rain).
 - **Why "dynamic"?** Positions and debris move every step; links and both paths are recomputed
   every step (0.2 ms), and every change of best path is logged as a reroute event.
 
