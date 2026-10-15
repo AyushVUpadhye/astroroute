@@ -1,0 +1,6 @@
+{
+  "name": "astroroute",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test tests/", "serve": "python -m http.server 8000 -d web" }
+}
