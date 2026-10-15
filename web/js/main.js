@@ -2,7 +2,8 @@
 import * as router from "./router.js";
 import * as realSim from "./sim.js";
 import * as realDetect from "./detect.js";
-import { COLORS, drawMap, drawChart, renderRoute, renderLog, renderProgress, renderVerdict } from "./ui.js";
+import { COLORS, drawMap, drawChart, renderRoute, renderLog, renderProgress, renderVerdict,
+  drawHeatmap, renderHopThreats, renderTransitWindows } from "./ui.js";
 
 // sim.js and detect.js are implemented on main, so the real modules run. The small mocks below
 // follow docs/PLAN.md "Interfaces" exactly; flip this to true to run the UI without them.
@@ -167,6 +168,7 @@ const params = new URLSearchParams(location.search);
 
 const S = {
   playing: false, speed: 1, mode: "fastest", predictive: true, tool: null, hover: null,
+  heatmap: false,
   timeSec: 0, wallPlay: 0,
   world: null, snap: null, prevSnap: null, links: [], nowLinks: [], best: null, alt: null,
   status: "up", reroutes: 0, forced: 0, everLinked: false,
@@ -176,6 +178,7 @@ const S = {
   det: null, detBls: null, detError: null, done: false, lcDirty: true, yRange: [0.99, 1.01],
   events: [], logDirty: true,
   demo: params.get("demo") === "1" ? { swarm: false, comet: false } : null,
+  transitWindows: [], mapT: null,
 };
 
 const nameOf = (id) => S.names.get(id) || id;
@@ -450,6 +453,12 @@ function onDetectResult({ gen, b, v, f, error }) {
     S.detError = error;
   } else {
     S.detBls = b; S.det = v; S.fold = f; S.detError = null;
+    // Update transit windows when we have a new BLS result
+    if (b?.best && S.snap) {
+      S.transitWindows = realSim.predictTransitWindows
+        ? realSim.predictTransitWindows(S.snap, b.best.period, b.best.t0, 6, b.best.duration)
+        : [];
+    }
   }
   drawDetection();
   if (job.again) { job.again = false; runDetect(); return; }
@@ -670,6 +679,7 @@ function bindControls() {
   document.querySelectorAll("#speed-seg .seg-btn").forEach((b) => b.addEventListener("click", () => setSpeed(+b.dataset.speed)));
   document.querySelectorAll("#mode-seg .seg-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   $("predict-btn").addEventListener("click", () => setPredictive(!S.predictive));
+  $("heatmap-btn").addEventListener("click", () => { S.heatmap = !S.heatmap; $("heatmap-btn").classList.toggle("active", S.heatmap); });
   document.querySelectorAll(".tool").forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
   $("reset-btn").addEventListener("click", () => { setTool(null); resetAll(); });
   document.addEventListener("keydown", (e) => {
@@ -751,7 +761,23 @@ function frame(now) {
         snap, links: S.links, best: S.best, alt: S.alt, packets: S.packets, buffered: S.backlog + held,
         timeSec: S.timeSec, armed: S.tool, hover: S.hover, srcId: S.src,
       });
+      // Heatmap overlay
+      if (S.heatmap && mapT) {
+        drawHeatmap(els.map, mapT, (wx, wy) => {
+          const fakeA = { x: wx, y: wy }, fakeB = { x: wx + 0.001, y: wy };
+          return sim.attenuationDb(snap, fakeA, fakeB);
+        });
+      }
       renderRoute({ best: S.best, alt: S.alt, status: S.status, reroutes: S.reroutes, forced: S.forced, nameOf });
+      renderHopThreats($("hop-threats"), S.best, S.links, nameOf);
+      // Path diversity
+      const div = realSim.pathDiversity ? realSim.pathDiversity(snap) : null;
+      if (div != null) $("diversity").textContent = `paths: ${"●".repeat(div)}${"○".repeat(Math.max(0, 5 - div))} ${div}`;
+      // Transit windows (refresh each frame so countdown stays live)
+      if (S.detBls?.best && S.snap && realSim.predictTransitWindows) {
+        S.transitWindows = realSim.predictTransitWindows(S.snap, S.detBls.best.period, S.detBls.best.t0, 6, S.detBls.best.duration);
+        renderTransitWindows($("transit-list"), $("transit-period"), S.transitWindows, S.detBls.best.period, S.snap.t);
+      }
       $("clock").textContent = `T+${(S.snap.t ?? 0).toFixed(2)} d · ${S.packets.length} in flight`;
     }
     if (S.lcDirty && now - lcDrawAt > 150) { drawLightCurve(); lcDrawAt = now; }

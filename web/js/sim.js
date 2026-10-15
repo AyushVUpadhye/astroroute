@@ -374,6 +374,79 @@ export function relayVulnerabilityRanking(snap, maxRangeAU = 2.6) {
   return results.sort((a, b) => b.criticality - a.criticality);
 }
 
+// Given a BLS-detected period (days) and t0 (days), return upcoming transit midpoints
+// relative to the current sim time (snap.t in hours).
+// Returns [{midDays, midHours, hoursFromNow, epochIndex}] sorted by soonest first.
+export function predictTransitWindows(snap, period, t0, count = 6, durationDays = null) {
+  if (!(period > 0)) return [];
+  const tNowDays = snap.t / 24;
+  const epochNow = Math.ceil((tNowDays - t0) / period);
+  const out = [];
+  for (let i = 0; i < count + 10 && out.length < count; i++) {
+    const midDays = (epochNow + i) * period + t0;
+    const hoursFromNow = (midDays - tNowDays) * 24;
+    if (hoursFromNow > 0) out.push({ midDays, midHours: midDays * 24, hoursFromNow, epochIndex: epochNow + i, durationDays: durationDays ?? period * 0.05 });
+  }
+  return out;
+}
+
+// Count how many node-disjoint paths exist from src to dst using Edmonds-Karp max-flow
+// on the node-split graph (each relay split into in/out with capacity 1).
+// src/dst themselves are not split (infinite capacity).
+export function pathDiversity(snap, maxRangeAU = 2.6) {
+  const nodes = snap.nodes;
+  const obsId  = nodes.find(n => n.kind === "observatory")?.id;
+  const earthId = nodes.find(n => n.kind === "earth")?.id;
+  if (!obsId || !earthId) return 0;
+
+  // Node-split: relay i → node i_in (2*i) and i_out (2*i+1); earth/obs use single node
+  const idx = new Map(nodes.map((n, i) => [n.id, i]));
+  const N = nodes.length * 2;
+  const cap = Array.from({ length: N }, () => new Array(N).fill(0));
+
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    const ni = i * 2, no = i * 2 + 1;
+    if (n.kind === "relay") cap[ni][no] = 1; // internal capacity 1
+    else cap[ni][no] = 999; // earth/obs unlimited
+  }
+  // External edges: for each in-range pair add edge out_i → in_j and out_j → in_i
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) > maxRangeAU) continue;
+      cap[i * 2 + 1][j * 2] = 999;
+      cap[j * 2 + 1][i * 2] = 999;
+    }
+  }
+
+  const S = idx.get(obsId) * 2 + 1; // source = obs_out
+  const T = idx.get(earthId) * 2;   // sink = earth_in
+
+  // BFS to find augmenting path
+  function bfs(flow) {
+    const prev = new Array(N).fill(-1); prev[S] = S;
+    const q = [S];
+    for (let qi = 0; qi < q.length; qi++) {
+      const u = q[qi];
+      for (let v = 0; v < N; v++) {
+        if (prev[v] === -1 && cap[u][v] - flow[u][v] > 0) { prev[v] = u; q.push(v); if (v === T) return prev; }
+      }
+    }
+    return null;
+  }
+
+  const flow = Array.from({ length: N }, () => new Array(N).fill(0));
+  let total = 0;
+  let prev;
+  while ((prev = bfs(flow)) !== null) {
+    let pathFlow = Infinity;
+    for (let v = T; v !== S; v = prev[v]) pathFlow = Math.min(pathFlow, cap[prev[v]][v] - flow[prev[v]][v]);
+    for (let v = T; v !== S; v = prev[v]) { flow[prev[v]][v] += pathFlow; flow[v][prev[v]] -= pathFlow; }
+    total += pathFlow;
+  }
+  return Math.min(total, 5); // cap display at 5
+}
+
 // For a single debris cluster: how many in-range links does it currently block vs partially jam?
 // Returns { debrisId, kind, blocked: [{a,b,attenDb}], jammed: [{a,b,attenDb}], clear: number, maxAttenDb }
 export function computeSwarmImpact(snap, debrisId, maxRangeAU = 2.6) {

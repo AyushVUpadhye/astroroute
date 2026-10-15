@@ -33,6 +33,10 @@
     </div>
 
     <div class="spacer"></div>
+    <div class="group">
+      <button class="btn" id="heatmap-btn" aria-pressed="false" title="Toggle signal attenuation heatmap">⬡ Heatmap</button>
+    </div>
+    <div class="diversity mono" id="diversity" title="Node-disjoint paths (path diversity)">paths: —</div>
     <div class="clock mono" id="clock">T+0.0 d</div>
   </header>
 
@@ -81,6 +85,7 @@
           <div class="stat"><div class="stat-v mono" id="st-reroutes">0</div><div class="stat-k" id="st-reroutes-k">reroutes</div></div>
         </div>
         <div class="alt-line mono" id="alt-line">alternate: —</div>
+        <div id="hop-threats" class="hop-threats"></div>
       </section>
 
       <section class="panel card">
@@ -110,6 +115,11 @@
           <div class="verdict-sub mono" id="verdict-sub"></div>
         </div>
         <ul class="checks" id="checks"></ul>
+      </section>
+
+      <section class="panel card" id="transit-panel">
+        <div class="panel-head"><h2>Transit Windows</h2><span class="muted mono" id="transit-period">—</span></div>
+        <div id="transit-list" class="transit-list"><div class="muted" style="padding:6px 0;font-size:11px">Waiting for planet detection…</div></div>
       </section>
     </aside>
   </main>

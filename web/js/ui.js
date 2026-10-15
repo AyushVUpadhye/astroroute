@@ -373,6 +373,77 @@ const VERDICT_CLASS = {
   "NEED MORE DATA": "warn", "NO CONVINCING SIGNAL": "",
 };
 
+// ---------------------------------------------------------------- heatmap overlay
+
+// Draw a signal-attenuation heatmap over the map canvas using the current snap.
+// attFn(x, y) → dB attenuation at world position (x, y).
+export function drawHeatmap(canvas, T, attFn, gridStep = 28) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const cellW = gridStep, cellH = gridStep;
+  for (let sx = 0; sx < w; sx += cellW) {
+    for (let sy = 0; sy < h; sy += cellH) {
+      const [wx, wy] = T.toWorld(sx + cellW / 2, sy + cellH / 2);
+      const db = attFn(wx, wy);
+      if (db <= 0) continue;
+      const alpha = Math.min(0.55, db / 60);
+      const t = Math.min(1, db / 24);
+      // green → yellow → red
+      const r = Math.round(t < 0.5 ? 255 * t * 2 : 255);
+      const g = Math.round(t < 0.5 ? 255 : 255 * (1 - (t - 0.5) * 2));
+      ctx.fillStyle = `rgba(${r},${g},0,${alpha.toFixed(2)})`;
+      ctx.fillRect(sx, sy, cellW, cellH);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- hop-threat bars
+
+// Render per-hop SNR threat indicator as colored mini-bars inside `el`.
+export function renderHopThreats(el, best, links, nameOf) {
+  if (!best || !links) { el.innerHTML = ""; return; }
+  const idx = new Map(links.map(l => [`${l.a}|${l.b}`, l]).concat(links.map(l => [`${l.b}|${l.a}`, l])));
+  const items = [];
+  for (let i = 0; i + 1 < best.nodes.length; i++) {
+    const a = best.nodes[i], b = best.nodes[i + 1];
+    const l = idx.get(`${a}|${b}`);
+    if (!l) continue;
+    const snr = l.snrDb ?? 999;
+    const blocked = l.blocked;
+    const forecast = l.forecastBlocked;
+    const level = blocked ? "blocked" : forecast ? "forecast" : snr < 9 ? "critical" : snr < 18 ? "warn" : "ok";
+    items.push(`<div class="hop-bar">` +
+      `<span class="hop-name">${nameOf(a)} → ${nameOf(b)}</span>` +
+      `<span class="hop-snr ${level}">${blocked ? "JAMMED" : forecast ? "~JAM" : snr.toFixed(1) + " dB"}</span>` +
+      `<div class="hop-fill ${level}" style="width:${Math.min(100, Math.max(0, snr / 40 * 100)).toFixed(0)}%"></div>` +
+      `</div>`);
+  }
+  el.innerHTML = items.join("");
+}
+
+// ---------------------------------------------------------------- transit windows
+
+export function renderTransitWindows(el, periodEl, windows, period, snapT) {
+  if (period > 0) periodEl.textContent = `P = ${period.toFixed(4)} d`;
+  if (!windows || !windows.length) {
+    el.innerHTML = '<div class="muted" style="padding:6px 0;font-size:11px">No detection yet.</div>';
+    return;
+  }
+  const fmtHours = (h) => {
+    if (h < 24) return `${h.toFixed(1)} h`;
+    const d = Math.floor(h / 24), rem = h % 24;
+    return `${d}d ${rem.toFixed(0)}h`;
+  };
+  el.innerHTML = windows.slice(0, 5).map((w, i) => {
+    const urgent = w.hoursFromNow < 48;
+    const obs = w.hoursFromNow < 2;
+    return `<div class="transit-row${obs ? " transit-now" : urgent ? " transit-soon" : ""}">` +
+      `<span class="transit-ep">#${w.epochIndex}</span>` +
+      `<span class="transit-time">${obs ? "▶ OBSERVABLE NOW" : "in " + fmtHours(w.hoursFromNow)}</span>` +
+      `<span class="transit-dur muted">(dur ${fmtHours(w.durationDays * 24)})</span>` +
+      `</div>`;
+  }).join("");
+}
+
 export function renderVerdict(result, sub = "") {
   const box = $("verdict"), v = result?.verdict || "WAITING FOR DATA";
   box.className = `verdict ${VERDICT_CLASS[v] ?? ""}`;
