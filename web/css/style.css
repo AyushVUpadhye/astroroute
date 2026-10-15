@@ -370,6 +370,22 @@ body::after {
 .transit-time { font-size: 11px; color: var(--text); flex: 1; }
 .transit-dur  { font-size: 10px; color: var(--muted); }
 
+/* ── 3D node labels ──────────────────────────────────────────────────────── */
+.node-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+  color: rgba(139,149,167,0.82); text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+  padding: 1px 5px; border-radius: 3px;
+  background: rgba(3,5,8,0.5);
+  transition: color 0.3s;
+  pointer-events: none;
+  margin-bottom: 4px;
+}
+.node-label.active {
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(127,209,255,0.55), 0 1px 4px rgba(0,0,0,0.9);
+  background: rgba(6,18,38,0.7);
+}
+
 /* ── Narrow screens ───────────────────────────────────────────────────────── */
 @media (max-width: 1280px) {
   :root { --side: 360px; }
