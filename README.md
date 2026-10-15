@@ -2,6 +2,18 @@
 
 Keep the signal alive, find the world — live rerouting of deep-space telescope data around asteroid/comet jamming, with a from-scratch exoplanet detector.
 
+## Problem statement — ZERO HOUR · Theme 03: 🚀 SPACE — EXOPLANET HUNTER
+
+**Case Study: A Signal Hidden in the Starlight**
+
+**The Scenario.** A telescope monitoring a distant star has detected a repeating dip in its brightness. It could be an exoplanet passing in front of the star — or it could be noise, instrument error, or another astronomical event. Your research team has been given a limited window to investigate the signal before the observation slot expires. The raw measurements are complex, and manually examining every candidate would take too long. A false positive could waste valuable telescope time; overlooking a genuine planet could mean missing a major discovery.
+
+**Your Mission.** Build an exoplanet-detection prototype that analyses astronomical light-curve data, identifies possible transit patterns, distinguishes promising candidates from noise, and visualizes the evidence behind its predictions. Use real public telescope data or a clearly documented sample dataset.
+
+**The Challenge.** Can your system find a potential new world hidden in the data?
+
+**Constraint (announced at the start of the hackathon).** When a group of asteroids or comets disrupts the radio signals between Earth and the target system, your solution must dynamically find an alternative transmission path to maintain communication and enable exoplanet detection. Pre-built models are not allowed.
+
 ## The constraint and how we meet it
 
 **Constraint:** when asteroids/comets disrupt radio signals, find an alternative path and keep detection running.
