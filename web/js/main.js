@@ -157,15 +157,17 @@ const LAUNCH_SEC = 0.6;         // one packet per 0.6 s at 1x
 const PACKET_AU_PER_SEC = 0.5;  // visual packet speed at 1x
 const DETECT_EVERY = 10;        // run BLS + vetting every N delivered packets
 const SWITCH_MARGIN = 0.97;     // only leave a working route for one >3% cheaper (no flapping)
+const AHEAD_DAYS = 1;           // predictive routing horizon
 
 const $ = (id) => document.getElementById(id);
 const els = { map: $("map"), lc: $("chart-lc"), pg: $("chart-pg"), fold: $("chart-fold") };
 const params = new URLSearchParams(location.search);
 
 const S = {
-  playing: false, speed: 1, mode: "fastest", tool: null, hover: null,
+  playing: false, speed: 1, mode: "fastest", predictive: true, tool: null, hover: null,
   timeSec: 0, wallPlay: 0,
-  world: null, snap: null, links: [], best: null, alt: null, status: "up", reroutes: 0, everLinked: false,
+  world: null, snap: null, prevSnap: null, links: [], nowLinks: [], best: null, alt: null,
+  status: "up", reroutes: 0, forced: 0, everLinked: false,
   src: null, dst: null, names: new Map(), debrisLabels: new Map(), debrisCount: { asteroid: 0, comet: 0 },
   targets: [], target: null, lc: null, chunkSize: 1, nChunks: 0,
   produced: 0, launched: 0, backlog: 0, launchAcc: 0, packets: [], chunks: [], delivered: 0, receivedPoints: 0,
@@ -197,7 +199,7 @@ function resetWorld() {
   S.names = new Map(S.snap.nodes.map((n) => [n.id, n.name || n.id]));
   S.src = S.snap.nodes.find((n) => n.kind === "observatory")?.id;
   S.dst = S.snap.nodes.find((n) => n.kind === "earth")?.id;
-  S.best = null; S.alt = null; S.reroutes = 0; S.everLinked = false;
+  S.prevSnap = null; S.best = null; S.alt = null; S.reroutes = 0; S.forced = 0; S.everLinked = false;
   S.debrisLabels.clear(); S.debrisCount = { asteroid: 0, comet: 0 };
 }
 
@@ -224,11 +226,12 @@ function revalidate(nodes, idx) {
 
 const pathKey = (p) => (p ? p.nodes.join(">") : "");
 
-// Which debris (by label) is responsible for blocking link A-B: every cloud adding at least a
-// quarter of the strongest one's jamming, e.g. "Swarm A-1 + Comet C-1"; null if none.
-function culprit(a, b) {
-  const A = S.snap.nodes.find((n) => n.id === a), B = S.snap.nodes.find((n) => n.id === b);
-  const hits = (S.snap.debris || []).map((d) => [d, sim.attenuationDb({ ...S.snap, debris: [d] }, A, B)])
+// Which debris (by label) is responsible for blocking link A-B in `snap`: every cloud adding at
+// least a quarter of the strongest one's jamming, e.g. "Swarm A-1 + Comet C-1"; null if none.
+function culprit(a, b, snap = S.snap) {
+  const A = snap.nodes.find((n) => n.id === a), B = snap.nodes.find((n) => n.id === b);
+  if (!A || !B) return null;
+  const hits = (snap.debris || []).map((d) => [d, sim.attenuationDb({ ...snap, debris: [d] }, A, B)])
     .filter(([, db]) => db > 0).sort((x, y) => y[1] - x[1]);
   if (!hits.length) return null;
   return hits.filter(([, db]) => db >= hits[0][1] / 4).map(([d]) => labelOf(d)).join(" + ");
@@ -243,21 +246,40 @@ function labelOf(d) {
   return S.debrisLabels.get(d.id);
 }
 
-function describeBreak(prev, idx) {
-  for (let i = 0; i + 1 < prev.nodes.length; i++) {
-    const a = prev.nodes[i], b = prev.nodes[i + 1], l = idx.get(router.edgeKey(a, b));
-    if (!l || !l.blocked) continue;
-    const who = culprit(a, b);
-    return who ? `${who} jammed ${nameOf(a)} -> ${nameOf(b)}` : `${nameOf(a)} -> ${nameOf(b)} went out of range`;
+// Why `route` is no longer usable. forced: a link is jammed right now (packets interrupted);
+// otherwise a link is forecast to be jammed within AHEAD_DAYS and we leave it proactively.
+function describeBreak(route) {
+  const now = linkIndex(S.nowLinks), used = linkIndex(S.links);
+  const hops = route.nodes.slice(1).map((b, i) => [route.nodes[i], b]);
+  for (const [a, b] of hops) {
+    const l = now.get(router.edgeKey(a, b));
+    if (l && !l.blocked) continue;
+    const who = l && culprit(a, b);
+    return { forced: true, text: who ? `${who} jammed ${nameOf(a)} -> ${nameOf(b)}` : `${nameOf(a)} -> ${nameOf(b)} went out of range` };
+  }
+  for (const [a, b] of hops) {
+    if (!used.get(router.edgeKey(a, b))?.forecastBlocked) continue;
+    const who = S.prevSnap && culprit(a, b, router.forecastSnapshot(S.prevSnap, S.snap, S.snap.t - S.prevSnap.t, AHEAD_DAYS));
+    return { forced: false, text: `${who || "Debris"} will jam ${nameOf(a)} -> ${nameOf(b)} within ${AHEAD_DAYS} d` };
   }
   return null;
 }
 
+// Links to route on. Predictive: avoid links that are blocked now OR forecast to be blocked
+// within AHEAD_DAYS (router.buildLinksAhead); if that leaves no path, fall back to links as
+// they are now. The same links feed bestPath and alternatePath.
+function routingLinks() {
+  S.nowLinks = router.buildLinks(S.snap, sim.attenuationDb);
+  const dtDays = S.prevSnap ? S.snap.t - S.prevSnap.t : 0;
+  if (!S.predictive || !(dtDays > 0)) return S.nowLinks;
+  const ahead = router.buildLinksAhead(S.prevSnap, S.snap, sim.attenuationDb, dtDays, { aheadDays: AHEAD_DAYS });
+  return S.src && S.dst && !router.bestPath(ahead, S.src, S.dst, S.mode) ? S.nowLinks : ahead;
+}
+
 function updateRouting(reason = "") {
-  S.links = router.buildLinks(S.snap, sim.attenuationDb);
-  const idx = linkIndex(S.links);
+  S.links = routingLinks();
   const fresh = S.src && S.dst ? router.bestPath(S.links, S.src, S.dst, S.mode) : null;
-  const cur = S.best ? revalidate(S.best.nodes, idx) : null;
+  const cur = S.best ? revalidate(S.best.nodes, linkIndex(S.links)) : null;
   let next = fresh;
   if (cur && fresh && pathKey(cur) !== pathKey(fresh) && fresh.cost >= cur.cost * SWITCH_MARGIN && !reason) next = cur;
   const prev = S.best, prevAlt = S.alt;
@@ -270,8 +292,8 @@ function updateRouting(reason = "") {
   const via = (p) => (p.nodes.length > 2 ? p.nodes.slice(1, -1).map(nameOf).join(", ") : "direct link");
   if (pathKey(prev) === pathKey(next)) {
     // the failover route was hit while the main route survived
-    const cause = prevAlt && pathKey(prevAlt) !== pathKey(S.alt) && describeBreak(prevAlt, idx);
-    if (cause) log(`${cause} on the alternate; ${S.alt ? `new alternate via ${via(S.alt)}` : "no alternate left"}`, "warn");
+    const cause = prevAlt && pathKey(prevAlt) !== pathKey(S.alt) && describeBreak(prevAlt);
+    if (cause) log(`${cause.text} on the alternate; ${S.alt ? `new alternate via ${via(S.alt)}` : "no alternate left"}`, "warn");
     return;
   }
   if (!prev && next) {
@@ -279,12 +301,13 @@ function updateRouting(reason = "") {
     else log(`Link restored via ${via(next)}; flushing ${S.backlog} buffered packet${S.backlog === 1 ? "" : "s"}`, "good");
     S.everLinked = true;
   } else if (prev && !next) {
-    log(`LINK DOWN: ${describeBreak(prev, idx) || "no route to Earth"}; buffering at ${nameOf(S.src)}`, "bad");
+    log(`LINK DOWN: ${describeBreak(prev)?.text || "no route to Earth"}; buffering at ${nameOf(S.src)}`, "bad");
   } else {
     S.reroutes++;
     const dl = next.latencyMin - prev.latencyMin, delta = `${dl >= 0 ? "+" : "-"}${Math.abs(dl).toFixed(1)} min`;
-    const cause = describeBreak(prev, idx);
-    if (cause) log(`${cause}; rerouted via ${via(next)}, ${delta}`, "warn");
+    const cause = describeBreak(prev);
+    if (cause?.forced) S.forced++;
+    if (cause) log(`${cause.text}; ${cause.forced ? "forced" : "proactive"} reroute via ${via(next)}, ${delta}`, cause.forced ? "bad" : "warn");
     else if (reason) log(`${reason}: route via ${via(next)}, ${delta}`, "info");
     else log(`Path cleared; switched to cheaper route via ${via(next)}, ${delta}`, "info");
   }
@@ -298,7 +321,7 @@ function nodePos(id) { return S.snap.nodes.find((n) => n.id === id); }
 // Route a packet from node `from` to Earth along the current best path (or the best path from there).
 function routeFrom(from) {
   if (S.best) { const i = S.best.nodes.indexOf(from); if (i >= 0) return S.best.nodes.slice(i); }
-  return router.bestPath(S.links, from, S.dst, S.mode)?.nodes || null;
+  return router.bestPath(S.nowLinks, from, S.dst, S.mode)?.nodes || null;
 }
 
 function rerouteInFlight() {
@@ -322,7 +345,7 @@ function launchTick() {
 }
 
 function movePackets(dtSec) {
-  const idx = linkIndex(S.links);
+  const idx = linkIndex(S.nowLinks); // packets only stop for links that are jammed now
   const keep = [];
   for (const p of S.packets) {
     let adv = PACKET_AU_PER_SEC * S.speed * dtSec, delivered = false;
@@ -592,6 +615,13 @@ function setMode(m) {
   if (S.snap) updateRouting(`Mode ${m === "fastest" ? "Fastest" : "Reliable"}`);
 }
 
+function setPredictive(on) {
+  S.predictive = on;
+  const b = $("predict-btn");
+  b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
+  if (S.snap) updateRouting(`Predictive routing ${on ? "on" : "off"}`);
+}
+
 function setTool(t) {
   S.tool = S.tool === t ? null : t;
   document.querySelectorAll(".tool").forEach((b) => b.classList.toggle("armed", b.dataset.tool === S.tool));
@@ -627,6 +657,7 @@ function bindControls() {
   $("play-btn").addEventListener("click", () => setPlaying(!S.playing));
   document.querySelectorAll("#speed-seg .seg-btn").forEach((b) => b.addEventListener("click", () => setSpeed(+b.dataset.speed)));
   document.querySelectorAll("#mode-seg .seg-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  $("predict-btn").addEventListener("click", () => setPredictive(!S.predictive));
   document.querySelectorAll(".tool").forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
   $("reset-btn").addEventListener("click", () => { setTool(null); resetAll(); });
   document.addEventListener("keydown", (e) => {
@@ -692,6 +723,7 @@ function frame(now) {
     if (S.playing && S.world && S.lc) {
       S.timeSec += dt * S.speed;
       S.wallPlay += dt;
+      S.prevSnap = S.snap;
       sim.step(S.world, dt * S.speed * SIM_HOURS_PER_SEC);
       S.snap = sim.snapshot(S.world);
       updateRouting();
@@ -707,7 +739,7 @@ function frame(now) {
         snap, links: S.links, best: S.best, alt: S.alt, packets: S.packets, buffered: S.backlog + held,
         timeSec: S.timeSec, armed: S.tool, hover: S.hover, srcId: S.src,
       });
-      renderRoute({ best: S.best, alt: S.alt, status: S.status, reroutes: S.reroutes, nameOf });
+      renderRoute({ best: S.best, alt: S.alt, status: S.status, reroutes: S.reroutes, forced: S.forced, nameOf });
       $("clock").textContent = `T+${(S.snap.t ?? 0).toFixed(2)} d · ${S.packets.length} in flight`;
     }
     if (S.lcDirty && now - lcDrawAt > 150) { drawLightCurve(); lcDrawAt = now; }

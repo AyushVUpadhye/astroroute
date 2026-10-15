@@ -158,11 +158,14 @@ export function drawChart(canvas, { xRange, yRange, xLabel = "", yLabel = "", se
 
 // ---------------------------------------------------------------- network map
 
-// World (AU) <-> screen transform centred on the Sun, fitted to the outermost node.
+// World (AU) <-> screen transform fitted to the box around all nodes and the Sun, so a long,
+// flat relay chain uses the full width of the panel.
 export function mapTransform(w, h, nodes) {
-  const R = Math.max(1.2, ...nodes.map((n) => Math.hypot(n.x, n.y))) * 1.12;
-  const scale = Math.min(w, h) / (2 * R);
-  const cx = w / 2, cy = h / 2;
+  const xs = [0, ...nodes.map((n) => n.x)], ys = [0, ...nodes.map((n) => n.y)];
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = 0.5 + 0.08 * Math.max(x1 - x0, y1 - y0);
+  const scale = Math.min(w / (x1 - x0 + 2 * pad), h / (y1 - y0 + 2 * pad));
+  const cx = w / 2 - ((x0 + x1) / 2) * scale, cy = h / 2 + ((y0 + y1) / 2) * scale;
   return {
     scale,
     toScreen: (x, y) => [cx + x * scale, cy - y * scale],
@@ -240,14 +243,17 @@ export function drawMap(canvas, state) {
     }
   }
 
-  // all links, faint, coloured by SNR; blocked links hidden
+  // all links, faint, coloured by SNR; blocked links hidden, links forecast to be jammed
+  // (predictive routing) thin dotted red
   ctx.lineWidth = 1;
   for (const l of links) {
-    if (l.blocked) continue;
+    if (l.blocked && !l.forecastBlocked) continue;
     const a = byId.get(l.a), b = byId.get(l.b);
     if (!a || !b) continue;
-    ctx.strokeStyle = snrColor(l.snrDb, 0.22);
+    if (l.forecastBlocked) { ctx.strokeStyle = rgba(COLORS.red, 0.75); ctx.setLineDash([2, 4]); }
+    else ctx.strokeStyle = snrColor(l.snrDb, 0.22);
     strokePath(ctx, [S(a), S(b)]);
+    ctx.setLineDash([]);
   }
 
   // alternate path: dashed amber
@@ -325,15 +331,18 @@ export function drawMap(canvas, state) {
 const $ = (id) => document.getElementById(id);
 const fmt = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : "—");
 
-export function renderRoute({ best, alt, status, reroutes, nameOf }) {
+export function renderRoute({ best, alt, status, reroutes, forced = 0, nameOf }) {
   const pill = $("link-pill");
   const label = { up: "LINK UP", rerouted: "REROUTED", down: "LINK DOWN - buffering" }[status];
   if (pill.textContent !== label) { pill.textContent = label; pill.className = `pill ${status}`; }
-  $("route-path").textContent = best ? best.nodes.map(nameOf).join("  →  ") : "no route to Earth";
+  const path = $("route-path");
+  path.textContent = best ? best.nodes.map(nameOf).join("  →  ") : "no route to Earth";
+  path.title = path.textContent;
   $("st-latency").textContent = best ? fmt(best.latencyMin) : "—";
   $("st-hops").textContent = best ? String(best.nodes.length - 1) : "—";
   $("st-snr").textContent = best ? fmt(best.minSnrDb) : "—";
   $("st-reroutes").textContent = String(reroutes);
+  $("st-reroutes-k").textContent = `reroutes · ${forced} forced`;
   $("alt-line").textContent = alt
     ? `alternate${alt.independent ? " (independent)" : ""}: ${alt.nodes.map(nameOf).join(" → ")} · ${fmt(alt.latencyMin)} min`
     : "alternate: none available";

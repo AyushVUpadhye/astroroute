@@ -44,6 +44,7 @@
           <span><i class="sw sw-best"></i>best path</span>
           <span><i class="sw sw-alt"></i>alternate</span>
           <span><i class="sw sw-jam"></i>jamming</span>
+          <span><i class="sw sw-ahead"></i>will be jammed</span>
           <span><i class="sw sw-link"></i>link SNR</span>
         </div>
       </div>
@@ -57,9 +58,14 @@
       <section class="panel card">
         <div class="panel-head">
           <h2>Route</h2>
-          <div class="seg" id="mode-seg" role="group" aria-label="Routing mode">
-            <button class="seg-btn active" data-mode="fastest">Fastest</button>
-            <button class="seg-btn" data-mode="reliable">Reliable</button>
+          <div class="group">
+            <button class="switch on" id="predict-btn" aria-pressed="true" title="Avoid links forecast to be jammed within 1 day">
+              <span class="knob"></span>Predictive
+            </button>
+            <div class="seg" id="mode-seg" role="group" aria-label="Routing mode">
+              <button class="seg-btn active" data-mode="fastest">Fastest</button>
+              <button class="seg-btn" data-mode="reliable">Reliable</button>
+            </div>
           </div>
         </div>
         <div class="route-head">
@@ -70,7 +76,7 @@
           <div class="stat"><div class="stat-v mono" id="st-latency">—</div><div class="stat-k">latency (min)</div></div>
           <div class="stat"><div class="stat-v mono" id="st-hops">—</div><div class="stat-k">hops</div></div>
           <div class="stat"><div class="stat-v mono" id="st-snr">—</div><div class="stat-k">min SNR (dB)</div></div>
-          <div class="stat"><div class="stat-v mono" id="st-reroutes">0</div><div class="stat-k">reroutes</div></div>
+          <div class="stat"><div class="stat-v mono" id="st-reroutes">0</div><div class="stat-k" id="st-reroutes-k">reroutes</div></div>
         </div>
         <div class="alt-line mono" id="alt-line">alternate: —</div>
       </section>
