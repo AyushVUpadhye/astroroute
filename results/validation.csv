@@ -1,11 +1,11 @@
 type,scenario,metric,value
-delivery,default,proactive_percent,99.8
+delivery,default,proactive_percent,99.9
 delivery,default,reactive_percent,100.0
-delivery,default,fixed_percent,81.8
+delivery,default,fixed_percent,33.1
 delivery,default,drop_steps,0
 delivery,storm,proactive_percent,99.8
 delivery,storm,reactive_percent,100.0
-delivery,storm,fixed_percent,81.8
+delivery,storm,fixed_percent,20.9
 delivery,storm,drop_steps,0
 bls,kepler-6,exact,3.2361436069381795
 bls,kepler-17,exact,1.4856341140027414

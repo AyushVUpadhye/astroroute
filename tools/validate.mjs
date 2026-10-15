@@ -166,7 +166,7 @@ async function blsStats() {
 }
 
 // ---- Main ----
-const STEPS = 500;
+const STEPS = 120 * 24; // 120 simulated days at 1 h per step - same horizon as tests/integration.test.mjs
 
 const [statsDefault, statsStorm] = await Promise.all([
   deliveryStats("default", STEPS),

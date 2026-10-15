@@ -19,7 +19,9 @@ The simulation also supports **proactive rerouting**: `predictJam` looks ahead o
 | Metric | Value |
 |---|---|
 | Router optimal vs brute force (1 000 random networks) | **0 mismatches** |
-| Packets — proactive rerouting vs reactive vs fixed route (default scenario) | **99.8% / 100% / 81.8%** |
+| Packets delivered over 120 simulated days — live rerouting vs fixed route | **100% vs 33.1%** (default swarm), **100% vs 20.9%** (3-swarm storm) |
+| Paths that broke while in use — plain vs predictive routing (1-day lookahead) | **5 → 0** (default), **6 → 0** (storm), **5 → 0** (comet rain) |
+| Kepler-6 streamed through the storm | **2093 / 2093** points delivered, period 3.2361 d (NASA 3.2347 d) |
 | BLS recovered NASA-published periods (within 1% or harmonic) | **9 / 9** |
 
 *(Regenerate: `node tools/validate.mjs`)*
