@@ -30,6 +30,9 @@ export class Map3D {
     this._dragLast = null;
     this._pulseLine = null;
     this._pulseMarker = null;
+    this._focus = new THREE.Vector3(0, 0, 0); // camera target: centre of the network
+    this._extent = 4.6;                        // network radius around _focus (AU)
+    this._reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
     this._initRenderer();
     this._initScene();
@@ -152,9 +155,11 @@ export class Map3D {
   }
 
   _bindDrag() {
-    this._canvas.addEventListener('mousedown', e => { this._userDrag = true; this._dragLast = e.clientX; });
-    window.addEventListener('mouseup', () => { this._userDrag = false; this._dragLast = null; });
-    window.addEventListener('mousemove', e => {
+    // Pointer events so a finger rotates the view as well as a mouse.
+    this._canvas.addEventListener('pointerdown', e => { this._userDrag = true; this._dragLast = e.clientX; });
+    window.addEventListener('pointerup', () => { this._userDrag = false; this._dragLast = null; });
+    window.addEventListener('pointercancel', () => { this._userDrag = false; this._dragLast = null; });
+    window.addEventListener('pointermove', e => {
       if (this._userDrag && this._dragLast != null) {
         this._orbitAngle -= (e.clientX - this._dragLast) * 0.004;
         this._dragLast = e.clientX;
@@ -163,6 +168,7 @@ export class Map3D {
   }
 
   update({ snap, links = [], best, alt, packets = [], buffered = 0, srcId, timeSec = 0 }) {
+    this._frameNetwork(snap.nodes);
     this._snap = snap;
     this._links = links;
     this._best = best;
@@ -172,6 +178,9 @@ export class Map3D {
     this._simTimeSec = timeSec;
     this._lastPackets = packets;
     this._rebuild();
+    // _rebuild() recreates the label elements; place them now, or the browser paints them
+    // unpositioned (off-screen) before the next animation frame moves them.
+    this._updateLabels();
   }
 
   _rebuild() {
@@ -370,21 +379,43 @@ export class Map3D {
     this._labelEls.push({ el, worldPos: worldPos.clone(), kind: n.kind });
   }
 
+  // Centre on the nodes' bounding box and size it from the farthest node, so the whole relay
+  // chain stays on screen however the camera orbits (the Observatory sits at 4.5 AU).
+  _frameNetwork(nodes) {
+    if (!nodes?.length) return;
+    const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    this._focus.set(cx, 0, -cy);
+    this._extent = Math.max(1.5, ...nodes.map(n => Math.hypot(n.x - cx, n.y - cy))) + 0.35;
+  }
+
+  // Camera distance that fits a disc of radius _extent, seen from the orbit's elevation, inside
+  // both the vertical and the horizontal field of view.
+  _fitDistance() {
+    const vHalf = THREE.MathUtils.degToRad(this.camera.fov / 2);
+    const hHalf = Math.atan(Math.tan(vHalf) * this.camera.aspect);
+    const sinElev = CAM_Y / Math.hypot(CAM_R, CAM_Y);
+    const R = this._extent;
+    return 1.08 * Math.max(R / Math.tan(hHalf), (R * sinElev + 0.3) / Math.tan(vHalf), 3);
+  }
+
   _frame(t) {
     const dt = t * 0.001; // seconds
 
-    // Slow auto-orbit when not dragging
-    if (!this._userDrag) this._orbitAngle += CAM_ORBIT_SPEED * (1 / 60);
+    // Slow auto-orbit when not dragging (off when the user prefers reduced motion)
+    if (!this._userDrag && !this._reduceMotion.matches) this._orbitAngle += CAM_ORBIT_SPEED * (1 / 60);
 
-    // Camera — smooth mouse parallax
+    // Camera: orbit the network's centre at a distance that keeps every node in view,
+    // plus a little mouse parallax
+    const k = this._fitDistance() / Math.hypot(CAM_R, CAM_Y);
     const mx = this._mouse.x * 0.14, my = this._mouse.y * 0.07;
-    const tx = Math.sin(this._orbitAngle) * CAM_R + mx;
-    const tz = Math.cos(this._orbitAngle) * CAM_R;
-    const ty = CAM_Y + my;
+    const tx = this._focus.x + Math.sin(this._orbitAngle) * CAM_R * k + mx;
+    const tz = this._focus.z + Math.cos(this._orbitAngle) * CAM_R * k;
+    const ty = CAM_Y * k + my;
     this.camera.position.x += (tx - this.camera.position.x) * 0.06;
     this.camera.position.y += (ty - this.camera.position.y) * 0.06;
     this.camera.position.z += (tz - this.camera.position.z) * 0.06;
-    this.camera.lookAt(0, 0, 0);
+    this.camera.lookAt(this._focus);
 
     // Sun pulsate
     if (this._sunMesh) {
