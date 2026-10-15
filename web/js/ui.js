@@ -51,9 +51,10 @@ const particleCache = new Map();
 function particles(d) {
   if (!particleCache.has(d.id)) {
     const r = seeded(d.id), n = d.kind === "comet" ? 26 : 46;
-    particleCache.set(d.id, Array.from({ length: n }, () => ({
-      a: r() * Math.PI * 2, d: Math.sqrt(r()) * 0.55, s: 0.6 + r() * 1.6, w: (r() - 0.5) * 0.6,
-    })));
+    // use the sim's own particle offsets (AU from the centre) when it provides them
+    particleCache.set(d.id, d.particles?.length
+      ? d.particles.map((p) => ({ a: Math.atan2(-p.dy, p.dx), d: Math.hypot(p.dx, p.dy) / d.r, s: 0.6 + r() * 1.6, w: (r() - 0.5) * 0.6 }))
+      : Array.from({ length: n }, () => ({ a: r() * Math.PI * 2, d: Math.sqrt(r()) * 0.55, s: 0.6 + r() * 1.6, w: (r() - 0.5) * 0.6 })));
   }
   return particleCache.get(d.id);
 }
@@ -270,9 +271,11 @@ export function drawMap(canvas, state) {
     ctx.fillStyle = p.held ? COLORS.amber : "#E8F7FF"; ctx.beginPath(); ctx.arc(px, py, 2.6, 0, Math.PI * 2); ctx.fill();
   }
 
-  // nodes + labels
+  // nodes, then labels placed greedily so a tight relay chain stays readable
   ctx.font = `11px ${SANS}`; ctx.textBaseline = "middle";
   const onPath = new Set(best ? best.nodes : []);
+  const boxes = snap.nodes.map((n) => { const [x, y] = S(n); return [x - 6, y - 6, x + 6, y + 6]; });
+  const hit = (b) => boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
   for (const n of snap.nodes) {
     const [x, y] = S(n), st = NODE_STYLE[n.kind] || NODE_STYLE.relay;
     if (n.kind === "relay") {
@@ -282,8 +285,18 @@ export function drawMap(canvas, state) {
       ctx.fillStyle = rgba(st.color, 0.25); ctx.beginPath(); ctx.arc(x, y, st.r + 5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = st.color; ctx.beginPath(); ctx.arc(x, y, st.r, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.fillStyle = COLORS.text; ctx.textAlign = "left";
-    ctx.fillText(n.name || n.id, x + st.r + 6, y - 1);
+  }
+  ctx.textAlign = "left";
+  for (const n of snap.nodes) {
+    const [x, y] = S(n), st = NODE_STYLE[n.kind] || NODE_STYLE.relay;
+    const txt = n.name || n.id, tw = ctx.measureText(txt).width, g = st.r + 6;
+    const spots = [[x + g, y], [x - g - tw, y], [x - tw / 2, y - g - 2], [x - tw / 2, y + g + 2],
+      [x + g - 4, y - 13], [x + g - 4, y + 13], [x - g - tw + 4, y - 13], [x - g - tw + 4, y + 13]];
+    const box = ([lx, ly]) => [lx - 1, ly - 7, lx + tw + 1, ly + 7];
+    const at = spots.find((s) => !hit(box(s))) || spots[0];
+    boxes.push(box(at));
+    ctx.fillStyle = "rgba(5,7,13,0.6)"; ctx.fillRect(at[0] - 2, at[1] - 7, tw + 4, 14);
+    ctx.fillStyle = COLORS.text; ctx.fillText(txt, at[0], at[1]);
   }
 
   // buffered badge at the source

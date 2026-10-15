@@ -4,9 +4,9 @@ import * as realSim from "./sim.js";
 import * as realDetect from "./detect.js";
 import { COLORS, drawMap, drawChart, renderRoute, renderLog, renderProgress, renderVerdict } from "./ui.js";
 
-// Until sim.js and detect.js are implemented on main, the UI runs on the small mocks below.
-// They follow docs/PLAN.md "Interfaces" exactly; flip this to false to use the real modules.
-const USE_MOCKS = true;
+// sim.js and detect.js are implemented on main, so the real modules run. The small mocks below
+// follow docs/PLAN.md "Interfaces" exactly; flip this to true to run the UI without them.
+const USE_MOCKS = false;
 
 // ============================================================== mocks (USE_MOCKS)
 
@@ -105,8 +105,9 @@ const mockDetect = (() => {
     return { periods, power, best };
   }
 
+  // phase in days from mid-transit, (-P/2, P/2], same convention as detect.js
   function fold(time, flux, period, t0) {
-    const phase = time.map((t) => ((((t - t0) / period + 0.5) % 1) + 1) % 1 - 0.5);
+    const phase = time.map((t) => { const x = (t - t0) / period; return (x - Math.round(x)) * period; });
     return { phase, flux: flux.slice() };
   }
 
@@ -223,15 +224,14 @@ function revalidate(nodes, idx) {
 
 const pathKey = (p) => (p ? p.nodes.join(">") : "");
 
-// Which debris (by label) is responsible for blocking link A-B, if any.
+// Which debris (by label) is responsible for blocking link A-B: every cloud adding at least a
+// quarter of the strongest one's jamming, e.g. "Swarm A-1 + Comet C-1"; null if none.
 function culprit(a, b) {
   const A = S.snap.nodes.find((n) => n.id === a), B = S.snap.nodes.find((n) => n.id === b);
-  let bestD = null, bestDb = 0;
-  for (const d of S.snap.debris || []) {
-    const db = sim.attenuationDb({ ...S.snap, debris: [d] }, A, B);
-    if (db > bestDb) { bestDb = db; bestD = d; }
-  }
-  return bestD ? labelOf(bestD) : null;
+  const hits = (S.snap.debris || []).map((d) => [d, sim.attenuationDb({ ...S.snap, debris: [d] }, A, B)])
+    .filter(([, db]) => db > 0).sort((x, y) => y[1] - x[1]);
+  if (!hits.length) return null;
+  return hits.filter(([, db]) => db >= hits[0][1] / 4).map(([d]) => labelOf(d)).join(" + ");
 }
 
 function labelOf(d) {
@@ -365,20 +365,64 @@ function receivedArrays() {
   return { time, flux };
 }
 
-function runDetect() {
-  const { time, flux } = receivedArrays();
-  if (time.length < 100) return;
+function detectAll(time, flux) {
+  const b = detect.bls(time, flux, {});
+  const v = detect.vet(time, flux, b.best);
+  const f = b.best ? detect.fold(time, flux, b.best.period, b.best.t0) : null;
+  return { b, v, f };
+}
+
+// The real BLS takes ~1 s on a full light curve, so it runs in a module worker to keep the map
+// animating. Built from a Blob so it imports the same detect.js; falls back to the main thread.
+function makeDetectWorker() {
+  if (USE_MOCKS || typeof Worker === "undefined") return null;
+  const src = `import * as detect from ${JSON.stringify(new URL("./detect.js", import.meta.url).href)};
+onmessage = (e) => {
+  const { gen, time, flux } = e.data;
   try {
     const b = detect.bls(time, flux, {});
     const v = detect.vet(time, flux, b.best);
-    const f = detect.fold(time, flux, b.best.period, b.best.t0);
+    const f = b.best ? detect.fold(time, flux, b.best.period, b.best.t0) : null;
+    postMessage({ gen, b, v, f });
+  } catch (err) { postMessage({ gen, error: err.message }); }
+};`;
+  try {
+    const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })), { type: "module" });
+    w.onmessage = (e) => onDetectResult(e.data);
+    w.onerror = (e) => { e.preventDefault(); detectWorker = null; job.busy = false; runDetect(); };
+    return w;
+  } catch { return null; }
+}
+let detectWorker = null;
+const job = { gen: 0, busy: false, again: false, final: false };
+
+function runDetect() {
+  const { time, flux } = receivedArrays();
+  if (time.length < 100) return;
+  if (job.busy) { job.again = true; return; } // coalesce: rerun on the newest data when done
+  job.final = S.delivered === S.nChunks;
+  if (detectWorker) {
+    job.busy = true;
+    detectWorker.postMessage({ gen: job.gen, time, flux });
+    return;
+  }
+  let res;
+  try { res = { gen: job.gen, ...detectAll(time, flux) }; } catch (e) { res = { gen: job.gen, error: e.message }; }
+  onDetectResult(res);
+}
+
+function onDetectResult({ gen, b, v, f, error }) {
+  if (gen !== job.gen) return; // a result for a target or run that was reset meanwhile
+  job.busy = false;
+  if (error) {
+    if (!S.detError) log(`Detector error: ${error}`, "bad");
+    S.detError = error;
+  } else {
     S.detBls = b; S.det = v; S.fold = f; S.detError = null;
-  } catch (e) {
-    if (!S.detError) log(`Detector error: ${e.message}`, "bad");
-    S.detError = e.message;
   }
   drawDetection();
-  if (S.delivered === S.nChunks && !S.done) {
+  if (job.again) { job.again = false; runDetect(); return; }
+  if (job.final && !S.done) {
     S.done = true;
     const v = S.det?.verdict || "no verdict";
     log(`All ${S.receivedPoints.toLocaleString()} points received; verdict: ${v}`,
@@ -411,7 +455,7 @@ function drawLightCurve() {
 
 function drawDetection() {
   const b = S.detBls, pub = S.target?.publishedPeriod;
-  if (b?.periods?.length) {
+  if (b?.best && b.periods?.length) {
     const pmax = Math.max(...b.power.filter(Number.isFinite), 1e-9);
     drawChart(els.pg, {
       xRange: [b.periods[0], b.periods[b.periods.length - 1]], yRange: [0, pmax * 1.15],
@@ -424,23 +468,23 @@ function drawDetection() {
     drawChart(els.pg, { xRange: [0, 10], yRange: [0, 1], xLabel: "period (d)", empty: S.detError ? "detector unavailable" : "needs more data" });
   }
 
-  if (S.fold && b) {
-    // accept either a [-0.5, 0.5) or a [0, 1) phase convention; centre the transit
-    const ph = S.fold.phase.map((p) => (p >= 0.5 ? p - 1 : p));
-    const win = Math.min(0.5, Math.max(0.06, (3 * b.best.duration) / b.best.period));
+  if (S.fold && b?.best) {
+    // fold() gives days from mid-transit; plot hours, zoomed to a few transit durations
+    const ph = S.fold.phase.map((p) => p * 24);
+    const win = 24 * Math.min(b.best.period / 2, Math.max(0.1, 3 * b.best.duration));
     const bin = binned(ph, S.fold.flux, -win, win, 40);
     drawChart(els.fold, {
-      xRange: [-win, win], yRange: S.yRange, xLabel: "phase", yLabel: "flux",
+      xRange: [-win, win], yRange: S.yRange, xLabel: "hours from mid-transit", yLabel: "flux",
       series: [{ type: "scatter", x: ph, y: S.fold.flux, color: COLORS.muted, size: 1.3, alpha: 0.6 },
         { type: "line", x: bin.x, y: bin.y, color: COLORS.accent, width: 2 }],
     });
   } else {
-    drawChart(els.fold, { xRange: [-0.5, 0.5], yRange: S.yRange, xLabel: "phase", empty: "no fold yet" });
+    drawChart(els.fold, { xRange: [-6, 6], yRange: S.yRange, xLabel: "hours from mid-transit", empty: "no fold yet" });
   }
 
   let sub = "";
   if (S.detError) sub = `detector error: ${S.detError}`;
-  else if (b) {
+  else if (b?.best) {
     const bb = b.best;
     sub = `P = ${bb.period.toFixed(4)} d` + (pub ? ` (NASA ${pub.toFixed(4)} d)` : "") +
       ` · depth ${(bb.depth * 100).toFixed(3)}% · SNR ${bb.snr.toFixed(1)}`;
@@ -460,6 +504,7 @@ function resetTransmission() {
   S.produced = 0; S.launched = 0; S.backlog = 0; S.launchAcc = 0; S.packets = [];
   S.chunks = []; S.delivered = 0; S.receivedPoints = 0; S.done = false;
   S.det = null; S.detBls = null; S.fold = null; S.detError = null; S.lcDirty = true;
+  job.gen++; job.busy = false; job.again = false; job.final = false;
   if (S.lc) {
     S.chunkSize = Math.ceil(S.lc.time.length / PACKETS_PER_TARGET);
     S.nChunks = Math.ceil(S.lc.time.length / S.chunkSize);
@@ -603,6 +648,26 @@ function bindControls() {
 
 // ============================================================== demo story (?demo=1)
 
+// Point on `route` farthest from every link of `avoid`, so a comet aimed there hits the
+// alternate without also cutting the best path (the two often share their first node).
+function aimAway(route, avoid) {
+  const segDist = (px, py, a, b) => {
+    const ex = b.x - a.x, ey = b.y - a.y, u = Math.max(0, Math.min(1, ((px - a.x) * ex + (py - a.y) * ey) / (ex * ex + ey * ey || 1e-12)));
+    return Math.hypot(a.x + u * ex - px, a.y + u * ey - py);
+  };
+  let pick = null;
+  for (let i = 0; i + 1 < route.nodes.length; i++) {
+    const a = nodePos(route.nodes[i]), b = nodePos(route.nodes[i + 1]);
+    for (let k = 1; k < 10; k++) {
+      const x = a.x + (b.x - a.x) * k / 10, y = a.y + (b.y - a.y) * k / 10;
+      let d = Infinity;
+      for (let j = 0; j + 1 < avoid.nodes.length; j++) d = Math.min(d, segDist(x, y, nodePos(avoid.nodes[j]), nodePos(avoid.nodes[j + 1])));
+      if (!pick || d > pick.d) pick = { x, y, d };
+    }
+  }
+  return pick;
+}
+
 function demoTick() {
   if (!S.demo || !S.best) return;
   if (!S.demo.swarm && S.wallPlay >= 10) {
@@ -612,7 +677,7 @@ function demoTick() {
   }
   if (!S.demo.comet && S.wallPlay >= 25 && S.alt) {
     S.demo.comet = true;
-    const p = aimAt(S.alt);
+    const p = aimAway(S.alt, S.best);
     if (p) addDebrisAt(p.x, p.y, "comet");
   }
 }
@@ -654,6 +719,7 @@ function frame(now) {
 }
 
 async function init() {
+  detectWorker = makeDetectWorker();
   bindControls();
   renderLog(S.events);
   try { resetWorld(); updateRouting(); } catch (e) { console.error(e); log(`Simulation error: ${e.message}`, "bad"); crashed = true; }
