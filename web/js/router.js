@@ -30,6 +30,29 @@ export function buildLinks(snap, attenuationDb, opts = {}) {
   return links;
 }
 
+// Predictive routing: extrapolate every node and debris cloud linearly from the last two
+// snapshots and treat a link as unusable if it is blocked now OR will be within aheadDays,
+// so traffic leaves a link before the swarm reaches it. Linear is fine over a few days:
+// Earth moves ~0.05 AU in 3 days, so its orbit's curvature is negligible at that scale.
+export function forecastSnapshot(prev, snap, dtDays, aheadDays) {
+  const k = aheadDays / dtDays;
+  const move = (list, prevList) => {
+    const before = new Map((prevList || []).map((o) => [o.id, o]));
+    return list.map((o) => {
+      const p = before.get(o.id);
+      return p ? { ...o, x: o.x + (o.x - p.x) * k, y: o.y + (o.y - p.y) * k } : o;
+    });
+  };
+  return { ...snap, nodes: move(snap.nodes, prev.nodes), debris: move(snap.debris || [], prev.debris) };
+}
+
+export function buildLinksAhead(prev, snap, attenuationDb, dtDays, opts = {}) {
+  const now = buildLinks(snap, attenuationDb, opts);
+  if (!prev || !(dtDays > 0)) return now;
+  const later = buildLinks(forecastSnapshot(prev, snap, dtDays, opts.aheadDays ?? 2), attenuationDb, opts);
+  return now.map((l, i) => (later[i].blocked && !l.blocked ? { ...l, blocked: true, forecastBlocked: true } : l));
+}
+
 export const edgeKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 function linkCost(l, mode, o) {

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as sim from "../web/js/sim.js";
-import { buildLinks, bestPath, edgeKey } from "../web/js/router.js";
+import { buildLinks, buildLinksAhead, bestPath, edgeKey } from "../web/js/router.js";
 import { bls } from "../web/js/detect.js";
 
 const simReady = (() => { try { sim.createWorld("default"); return true; } catch { return false; } })();
@@ -44,6 +44,35 @@ test("rerouting keeps more data flowing than a fixed route", { skip: !simReady &
     console.log(`Delivered with rerouting ${r.live.toFixed(1)}% vs fixed route ${r.fixed.toFixed(1)}% (scenario ${scenario}, ${r.reroutes} reroutes, ${DAYS} days)`);
     assert.ok(r.live >= r.fixed, "live rerouting can never do worse than the fixed route");
     assert.ok(r.reroutes > 0, `the ${scenario} swarm must force at least one reroute`);
+  }
+});
+
+// A "forced" reroute = the path in use already had a jammed link when we switched (packets in
+// flight interrupted). A "proactive" one = we left a path that was still working.
+function handovers(scenario, predictive) {
+  const w = sim.createWorld(scenario);
+  let snap = sim.snapshot(w), prev = null, route = null, forced = 0, proactive = 0;
+  const obs = snap.nodes.find((n) => n.kind === "observatory").id;
+  const earth = snap.nodes.find((n) => n.kind === "earth").id;
+  for (let k = 0; k < (DAYS * 24) / STEP_H; k++) {
+    prev = snap; sim.step(w, STEP_H); snap = sim.snapshot(w);
+    const now = buildLinks(snap, sim.attenuationDb);
+    const up = new Set(now.filter((l) => !l.blocked).map((l) => edgeKey(l.a, l.b)));
+    const links = predictive ? buildLinksAhead(prev, snap, sim.attenuationDb, STEP_H / 24, { aheadDays: 1 }) : now;
+    const best = bestPath(links, obs, earth) || bestPath(now, obs, earth);
+    if (!best) continue;
+    const key = best.nodes.join(">");
+    if (route && key !== route.key) route.links.every((l) => up.has(edgeKey(l.a, l.b))) ? proactive++ : forced++;
+    route = { key, links: best.links };
+  }
+  return { forced, proactive };
+}
+
+test("predictive routing leaves a link before the debris jams it", { skip: !simReady && "sim.js not implemented yet" }, () => {
+  for (const scenario of ["default", "storm", "comet-rain"]) {
+    const plain = handovers(scenario, false), ahead = handovers(scenario, true);
+    console.log(`Forced reroutes (path broke while in use), ${scenario}: ${plain.forced} plain vs ${ahead.forced} predictive (1-day lookahead)`);
+    assert.ok(ahead.forced <= plain.forced);
   }
 });
 
