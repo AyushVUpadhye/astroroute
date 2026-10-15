@@ -2,8 +2,9 @@
 import * as router from "./router.js";
 import * as realSim from "./sim.js";
 import * as realDetect from "./detect.js";
-import { COLORS, drawMap, drawChart, renderRoute, renderLog, renderProgress, renderVerdict,
-  drawHeatmap, renderHopThreats, renderTransitWindows, latestOnly } from "./ui.js";
+import { COLORS, drawChart, renderRoute, renderLog, renderProgress, renderVerdict,
+  renderHopThreats, renderTransitWindows, latestOnly } from "./ui.js";
+import { Map3D } from "./map3d.js";
 
 // sim.js and detect.js are implemented on main, so the real modules run. The small mocks below
 // follow docs/PLAN.md "Interfaces" exactly; flip this to true to run the UI without them.
@@ -687,6 +688,16 @@ function aimAt(route) {
 }
 
 let mapT = null;
+let _map3d = null;
+
+function getMap3D() {
+  if (!_map3d) {
+    _map3d = new Map3D(els.map);
+    els.map.addEventListener('mousemove', e => _map3d.onMouseMove(e.clientX, e.clientY));
+  }
+  return _map3d;
+}
+
 function bindControls() {
   $("picker-btn").addEventListener("click", (e) => { e.stopPropagation(); togglePicker(); });
   document.addEventListener("click", (e) => { if (!$("picker").contains(e.target)) togglePicker(false); });
@@ -772,17 +783,10 @@ function frame(now) {
     if (S.snap) {
       const snap = { ...S.snap, debris: (S.snap.debris || []).map((d) => ({ ...d, label: labelOf(d) })) };
       const held = S.packets.filter((p) => p.held && p.route[p.hop] === S.src).length;
-      mapT = drawMap(els.map, {
-        snap, links: S.links, best: S.best, alt: S.alt, packets: S.packets, buffered: S.backlog + held,
-        timeSec: S.timeSec, armed: S.tool, hover: S.hover, srcId: S.src,
-      });
-      // Heatmap overlay
-      if (S.heatmap && mapT) {
-        drawHeatmap(els.map, mapT, (wx, wy) => {
-          const fakeA = { x: wx, y: wy }, fakeB = { x: wx + 0.001, y: wy };
-          return sim.attenuationDb(snap, fakeA, fakeB);
-        });
-      }
+      const m3 = getMap3D();
+      m3.update({ snap, links: S.links, best: S.best, alt: S.alt, packets: S.packets,
+        buffered: S.backlog + held, srcId: S.src, timeSec: S.timeSec });
+      mapT = m3;
       renderRoute({ best: S.best, alt: S.alt, status: S.status, reroutes: S.reroutes, forced: S.forced, nameOf });
       renderHopThreats($("hop-threats"), S.best, S.links, nameOf);
       // Path diversity
